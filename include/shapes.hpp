@@ -11,6 +11,13 @@
 
 struct Shape
 {
+	static const enum Type
+	{
+		SPHERE,
+		PLANE,
+		BOX
+	} type;
+
 	Material material;
 	glm::vec3 position;
 	
@@ -21,6 +28,8 @@ struct Shape
 
 struct Sphere : public Shape
 {
+	static const Shape::Type type = Shape::Type::SPHERE;
+
 	float radius;
 
 	Sphere(Material material, glm::vec3 position, float radius)
@@ -45,6 +54,8 @@ struct Sphere : public Shape
 
 struct Plane : public Shape
 {
+	static const Shape::Type type = Shape::Type::PLANE;
+
 	glm::vec3 normal;
 
 	Plane(Material material, glm::vec3 position, glm::vec3 normal)

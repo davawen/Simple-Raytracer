@@ -8,34 +8,29 @@ struct Material
 {
 	Color color;
 
-	Color albedo;
-	float reflectivness;
+	Color specular;
+	float specularExponent;
 
 	Color emission;
 
 	Material(){}
-	Material(const Color &color, float reflectivness)
+	Material(const Color &color, const Color &specular, float specularExponent)
 	{
 		this->color = color;
 		
-		this->reflectivness = reflectivness;
+		this->specular = specular;
+		this->specularExponent = specularExponent;
+		
+		this->emission = color::black;
 	}
 
-	Material(const Color &color, const Color &albedo, float reflectivness)
+	Material(const Color &color, const Color &specular, float specularExponent, const Color &emission)
 	{
 		this->color = color;
-
-		this->albedo = albedo;
-		this->reflectivness = reflectivness;
-	}
-
-	Material(const Color &color, const Color &albedo, const Color &emission, float reflectivness)
-	{
-		this->color = color;
-
-		this->albedo = albedo;
-		this->reflectivness = reflectivness;
-
+		
+		this->specular = specular;
+		this->specularExponent = specularExponent;
+		
 		this->emission = emission;
 	}
 };

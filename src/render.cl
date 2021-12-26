@@ -9,6 +9,8 @@ struct RenderData
 struct SceneData
 {
 	int numSpheres;
+	
+	float3 lightSource;
 };
 
 struct Ray
@@ -17,10 +19,31 @@ struct Ray
 	float3 direction;
 };
 
-struct Sphere
+struct Intersection
 {
 	float3 position;
+	float3 normal;
+};
+
+struct Material
+{
+	float3 color;
+	float3 specular;
+	float specularExponent;
+};
+
+struct Sphere
+{
+	struct Material material;
+	float3 position;
 	float radius;
+};
+
+struct Plane
+{
+	struct Material material;
+	float3 position;
+	float3 normal;
 };
 
 float4 matrixByVector(const float4 m[4], const float4 v)
@@ -33,10 +56,25 @@ float4 matrixByVector(const float4 m[4], const float4 v)
 	);
 }
 
+float3 reflect(const float3 v, const float3 n)
+{
+	return v - 2.0f*dot(v, n)*n;
+}
+
+uint wang_hash(uint seed)
+{
+    seed = (seed ^ 61) ^ (seed >> 16);
+    seed *= 9;
+    seed = seed ^ (seed >> 4);
+    seed *= 0x27d4eb2d;
+    seed = seed ^ (seed >> 15);
+    return seed;
+}
+
 bool intersect_sphere(constant struct Sphere *sphere, const struct Ray *ray, float *t)
 {
 	float3 rayToCenter = sphere->position - ray->origin;
-
+	
 	/* calculate coefficients a, b, c from quadratic equation */
 
 	/* float a = dot(ray->dir, ray->dir); // ray direction is normalised, dotproduct simplifies to 1 */ 
@@ -46,10 +84,10 @@ bool intersect_sphere(constant struct Sphere *sphere, const struct Ray *ray, flo
 
 	/* solve for t (distance to hitpoint along ray) */
 
-	if (disc < 0.0f) return false;
+	if(disc < 0.0f) return false;
 	else *t = b - sqrt(disc);
 
-	if (*t < 0.0f)
+	if(*t < 0.0f)
 	{
 		*t = b + sqrt(disc);
 		if (*t < 0.0f) return false; 
@@ -58,7 +96,16 @@ bool intersect_sphere(constant struct Sphere *sphere, const struct Ray *ray, flo
 	return true;
 }
 
-constant struct Sphere *closest_intersection(const struct SceneData *scene, constant struct Sphere *spheres, const struct Ray *ray, float *t)
+bool intersect_plane(constant struct Plane *plane, const struct Ray *ray, float *t)
+{
+	float denom = dot(plane->normal, ray->direction);
+	if(denom > 0.0f) return false;
+	*t = -dot(plane->normal, ray->origin - plane->position) / denom;
+	
+	return true;
+}
+
+constant struct Sphere *closest_intersection(const struct SceneData *scene, constant struct Sphere *spheres, const struct Ray *ray, struct Intersection *rayhit)
 {
 	constant struct Sphere *closest = NULL;
 	float tmin = FLT_MAX;
@@ -78,28 +125,62 @@ constant struct Sphere *closest_intersection(const struct SceneData *scene, cons
 
 	if(tmin == FLT_MAX) return NULL;
 	
-	*t = tmin;
+	if(rayhit != NULL)
+	{ 
+		rayhit->position = ray->origin + ray->direction * tmin;
+		rayhit->normal = normalize(rayhit->position - closest->position);
+		rayhit->position += rayhit->normal * 0.001f;
+	}
+	
 	return closest;
 }
 
-float3 trace(const struct SceneData *scene, constant struct Sphere *spheres, const struct Ray *camray)
+float3 trace(const struct SceneData *scene, global const struct Sphere *spheres, const struct Ray *camray)
 {
-	float t;
-	constant struct Sphere *sphere = closest_intersection(scene, spheres, camray, &t);
-
-	if(sphere != NULL)
+	struct Intersection rayhit;
+	struct Ray ray = *camray;
+	
+	float3 color = (float3)(0.f);
+	float3 mask = (float3)(1.f);
+	
+	// float seed = (wang_hash((uint)(camray->origin.x*100) + (uint)(camray->origin.y*100)*100) % 1000);
+	
+	for(size_t i = 1; i <= 1; i++)
 	{
-		float3 hitpoint = camray->origin + camray->direction * t;
-		
-		float3 normal = normalize(hitpoint - sphere->position);
-		normal = dot(normal, camray->direction) < 0.0f ? normal : -normal;
-		
-		return dot((float3)(0.6f, 0.6f, 0.6f), normal);
+		constant struct Sphere *sphere = closest_intersection(scene, spheres, &ray, &rayhit);
+	
+		if(sphere != NULL)
+		{
+			float3 toLightsource = normalize(scene->lightSource - rayhit.position);
+			
+			float3 reflected = reflect(-toLightsource, rayhit.normal);
+			
+			float3 phong = (sphere->material.color * (float3)(.3f, .65f, 1.f) * .1f) +
+				sphere->material.color * max(dot(toLightsource, rayhit.normal), 0.f) +
+				sphere->material.specular * pow(max(dot(reflected, -camray->direction), 0.f), sphere->material.specularExponent);
+			
+			color = phong;
+			
+			// scene->lightSource
+			// mask *= (float3)(0.6f, 0.6f, 0.6f);
+			
+			// float3 normal = normalize(hitpoint - sphere->position);
+			// normal = dot(normal, camray->direction) < 0.0f ? normal : -normal;
+			
+			// ray.origin = hitpoint + normal * 0.001f;
+			// ray.direction = normalize(ray.direction - 2.0f * dot(normal, ray.direction) * normal);
+			
+			// mask *= dot(ray.direction, normal);
+		}
+		else
+		{
+			if(dot(normalize(scene->lightSource - camray->origin), camray->direction) > 0.97f) color = (float3)(1.f);
+			else color = (float3)(.3f, .65f, 1.f); // Sky color
+			break;
+		}
 	}
-	else
-	{
-		return (float3)(.15f, .15f, .15f);
-	}
+	
+	return clamp(color, (float3)(0.f), (float3)(1.f));
 }
 
 

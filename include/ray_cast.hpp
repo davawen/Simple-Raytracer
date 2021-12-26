@@ -74,7 +74,7 @@ Color ray_cast(const glm::vec3 &startOrigin, const glm::vec3 &startDirection, co
 
 			result += energy * intersection.shape->material.color * glm::dot(rayDirection, intersection.normal);
 
-			energy *= intersection.shape->material.albedo;
+			energy *= intersection.shape->material.specular;
 
 			// mask *= intersection.shape->material.color;
 

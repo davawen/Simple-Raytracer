@@ -10,6 +10,9 @@
 
 namespace compute = boost::compute;
 
+#define VEC3TOCL(v) (cl_float3({{ (v).x, (v).y, (v).z }}))
+#define VEC4TOCL(v) (cl_float4({{ (v).x, (v).y, (v).z, (v).w }}))
+
 class Tracer
 {
 private:
@@ -20,28 +23,66 @@ private:
 	compute::kernel kernel;
 	compute::command_queue queue;
 
-	compute::buffer bufferScene;
+	compute::buffer bufferSpheres;
+	compute::buffer bufferPlanes;
 
 	compute::buffer bufferOutput;
 
+	struct CL_Material
+	{
+		cl_float3 color;
+		cl_float3 specular;
+		cl_float specularExponent;
+
+		CL_Material()
+		{
+			this->color = VEC3TOCL(glm::vec3(0.f));
+			this->specular = VEC3TOCL(glm::vec3(0.f));
+			this->specularExponent = 0.f;
+		}
+
+		CL_Material(const Material &material)
+		{
+			this->color = VEC3TOCL(material.color);
+			this->specular = VEC3TOCL(material.specular);
+			this->specularExponent = material.specularExponent;
+		}
+	};
+
 	struct CL_Sphere
 	{
+		CL_Material material;
 		cl_float3 position;
 		cl_float radius;
 
-		CL_Sphere(glm::vec3 pos, float radius)
+		CL_Sphere(const Material &material, const glm::vec3 &pos, const float radius)
 		{
-			this->position.x = pos.x;
-			this->position.y = pos.y;
-			this->position.z = pos.z;
+			this->material = CL_Material(material);
 
+			this->position = VEC3TOCL(pos);
 			this->radius = radius;
+		}
+	};
+
+	struct CL_Plane
+	{
+		CL_Material material;
+		cl_float3 position;
+		cl_float3 normal;
+
+		CL_Plane(const Material &material, const glm::vec3 &pos, const glm::vec3 &normal)
+		{
+			this->material = CL_Material(material);
+
+			this->position = VEC3TOCL(pos);
+			this->normal = VEC3TOCL(normal);
 		}
 	};
 
 	struct CL_SceneData
 	{
 		cl_int numSpheres;
+		cl_float3 lightSource;
 	} sceneData;
 public:
 
@@ -62,7 +103,8 @@ public:
 		{
 			for(size_t i = 0; i < 4; i++)
 			{
-				cameraToWorldMatrix[i] = {{ cameraToWorld[i].x, cameraToWorld[i].y, cameraToWorld[i].z, cameraToWorld[i].w }};
+				//cameraToWorldMatrix[i] = {{ cameraToWorld[i].x, cameraToWorld[i].y, cameraToWorld[i].z, cameraToWorld[i].w }};
+				cameraToWorldMatrix[i] = VEC4TOCL(cameraToWorld[i]);
 			}
 		}
 	};
@@ -93,14 +135,19 @@ public:
 		kernel.set_arg(2, bufferOutput);
 	}
 
-	void update_scene(const std::vector<Shape *> &shapes)
+	void update_scene(const std::vector<Shape *> &shapes, const glm::vec3 &lightSource)
 	{
-		std::vector<CL_Sphere> positions;//(shapes.size());
+		std::vector<CL_Sphere> spheres;//(shapes.size());
+		std::vector<CL_Plane> planes;
 
-		for(size_t i = 0; i < shapes.size(); i++)
+		for(auto &shape : shapes)
 		{
-			Sphere *curr = reinterpret_cast<Sphere *>(shapes[i]);
-			positions.push_back(CL_Sphere(curr->position, curr->radius));
+			switch(shape->type)
+			{
+				case Shape::Type::SPHERE:
+					Sphere *sphere = reinterpret_cast<Sphere *>(shape);
+					spheres.push_back(CL_Sphere(sphere->));
+			}
 		}
 		
 		// Only create new buffer if previous one is too small
@@ -111,6 +158,7 @@ public:
 		kernel.set_arg(3, bufferScene); // Point to new buffer
 
 		sceneData.numSpheres = positions.size();
+		sceneData.lightSource = VEC3TOCL(lightSource);
 		kernel.set_arg(1, sizeof(CL_SceneData), &sceneData);
 	}
 
