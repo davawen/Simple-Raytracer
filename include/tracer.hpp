@@ -24,9 +24,6 @@ private:
 	compute::kernel kernel;
 	compute::command_queue queue;
 
-	compute::buffer bufferSpheres;
-	compute::buffer bufferPlanes;
-
 	compute::buffer bufferOutput;
 
 	struct CL_Material
@@ -37,8 +34,8 @@ private:
 
 		CL_Material()
 		{
-			this->color = VEC3TOCL(glm::vec3(0.f));
-			this->specular = VEC3TOCL(glm::vec3(0.f));
+			this->color = {{ 0.f, 0.f, 0.f }};
+			this->specular = {{ 0.f }};
 			this->specularExponent = 0.f;
 		}
 
@@ -56,12 +53,27 @@ private:
 		cl_float3 position;
 		cl_float radius;
 
+		CL_Sphere()
+		{
+			this->material = CL_Material();
+			this->position = {{ 0.f, 0.f, 0.f }};
+			this->radius = 0.f;
+		}
+
 		CL_Sphere(const Material &material, const glm::vec3 &pos, const float radius)
 		{
 			this->material = CL_Material(material);
 
 			this->position = VEC3TOCL(pos);
 			this->radius = radius;
+		}
+
+		CL_Sphere(const Sphere &sphere)
+		{
+			this->material = CL_Material(sphere.material);
+
+			this->position = VEC3TOCL(sphere.position);
+			this->radius = sphere.radius;
 		}
 	};
 
@@ -71,12 +83,27 @@ private:
 		cl_float3 position;
 		cl_float3 normal;
 
+		CL_Plane()
+		{
+			this->material = CL_Material();
+			this->position = {{ 0.f, 0.f, 0.f }};
+			this->normal = {{ 0.f, 0.f, 0.f }};
+		}
+
 		CL_Plane(const Material &material, const glm::vec3 &pos, const glm::vec3 &normal)
 		{
 			this->material = CL_Material(material);
 
 			this->position = VEC3TOCL(pos);
 			this->normal = VEC3TOCL(normal);
+		}
+
+		CL_Plane(const Plane &plane)
+		{
+			this->material = CL_Material(plane.material);
+
+			this->position = VEC3TOCL(plane.position);
+			this->normal = VEC3TOCL(plane.normal);
 		}
 	};
 
@@ -86,6 +113,15 @@ private:
 		cl_int numPlanes;
 		cl_float3 lightSource;
 	} sceneData;
+
+	struct
+	{
+		compute::buffer bufferSpheres;
+		compute::buffer bufferPlanes;
+
+		std::vector<CL_Sphere> spheres;
+		std::vector<CL_Plane> planes;
+	} shapes;
 public:
 
 	struct CL_RenderData
@@ -130,8 +166,8 @@ public:
 		// Create command queue
 		queue = compute::command_queue(context, device);
 
-		bufferSpheres = compute::buffer(context, 0);
-		bufferPlanes = compute::buffer(context, 0);
+		shapes.bufferSpheres = compute::buffer(context, 0);
+		shapes.bufferPlanes = compute::buffer(context, 0);
 
 		bufferOutput = compute::buffer(context, sizeof(cl_uchar4) * width * height);
 
@@ -141,30 +177,34 @@ public:
 
 	void update_scene(const std::vector<Sphere> &inputSpheres, const std::vector<Plane> &inputPlanes, const glm::vec3 &lightSource)
 	{
-		std::vector<CL_Sphere> spheres;
-		spheres.reserve(inputSpheres.size());
+		shapes.spheres.resize(inputSpheres.size());
+		shapes.planes.resize(inputPlanes.size());
 
-		std::vector<CL_Plane> planes;
-		planes.reserve(inputPlanes.size());
-
-		for(auto &sphere : inputSpheres) spheres.push_back(CL_Sphere(sphere.material, sphere.position, sphere.radius));
-		for(auto &plane : inputPlanes) planes.push_back(CL_Plane(plane.material, plane.position, plane.normal));
+		for(size_t i = 0; i < inputSpheres.size(); i++)
+		{
+			shapes.spheres[i] = CL_Sphere(inputSpheres[i]);
+		}
 		
+		for(size_t i = 0; i < inputPlanes.size(); i++)
+		{
+			shapes.planes[i] = CL_Plane(inputPlanes[i]);
+		}
+
 		// Only create new buffer if previous one is too small
-		if(bufferSpheres.size() < sizeof(CL_Sphere) * spheres.size())
-			bufferSpheres = compute::buffer(context, sizeof(CL_Sphere) * spheres.size()); // NOTE: Assigning releases old buffer, so this does not cause a memory leak
+		if(shapes.bufferSpheres.size() < sizeof(CL_Sphere) * shapes.spheres.size())
+			shapes.bufferSpheres = compute::buffer(context, sizeof(CL_Sphere) * shapes.spheres.size()); // NOTE: Assigning releases old buffer, so this does not cause a memory leak
 
-		if(bufferPlanes.size() < sizeof(CL_Plane) * planes.size())
-			bufferPlanes = compute::buffer(context, sizeof(CL_Plane) * planes.size());
+		if(shapes.bufferPlanes.size() < sizeof(CL_Plane) * shapes.planes.size())
+			shapes.bufferPlanes = compute::buffer(context, sizeof(CL_Plane) * shapes.planes.size());
 
-		queue.enqueue_write_buffer(bufferSpheres, 0, sizeof(CL_Sphere) * spheres.size(), spheres.data());
-		queue.enqueue_write_buffer(bufferPlanes, 0, sizeof(CL_Plane) * planes.size(), planes.data());
+		if(shapes.spheres.size() > 0) queue.enqueue_write_buffer(shapes.bufferSpheres, 0, sizeof(CL_Sphere) * shapes.spheres.size(), shapes.spheres.data());
+		if(shapes.planes.size() > 0) queue.enqueue_write_buffer(shapes.bufferPlanes, 0, sizeof(CL_Plane) * shapes.planes.size(), shapes.planes.data());
 
-		kernel.set_arg(3, bufferSpheres); // Point to new buffer
-		kernel.set_arg(4, bufferPlanes);
+		kernel.set_arg(3, shapes.bufferSpheres); // Point to new buffer
+		kernel.set_arg(4, shapes.bufferPlanes);
 
-		sceneData.numSpheres = spheres.size();
-		sceneData.numPlanes = planes.size();
+		sceneData.numSpheres = shapes.spheres.size();
+		sceneData.numPlanes = shapes.planes.size();
 		sceneData.lightSource = VEC3TOCL(lightSource);
 		kernel.set_arg(1, sizeof(CL_SceneData), &sceneData);
 	}

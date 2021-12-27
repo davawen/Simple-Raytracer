@@ -138,12 +138,12 @@ int main(int argc, char **argv)
 		};
 	} shapes;
 
-	for(size_t i = 0; i < 100; i++)
+	for(size_t i = 0; i < 400; i++)
 	{
 		shapes.spheres.push_back(
 			Sphere(
 				Material(color::from_hex(0x6d16e0), color::white, 10.f),
-				{ (i % 10) * 24., 15, (i / 10) * -24. },
+				{ (i % 20) * 24., 15, (i / 20) * -24. },
 				10.f
 			)
 		);
@@ -326,7 +326,7 @@ int main(int argc, char **argv)
 			}
 		}
 
-		for(auto &sphere : shapes.spheres) sphere.position.y += glm::sin(loopStartSec + sphere.position.x)*.2f;
+		for(auto &sphere : shapes.spheres) sphere.position.y += glm::sin(loopStartSec + sphere.position.x + sphere.position.z)*.2f;
 		// lightSource = glm::rotateZ(lightSource, 0.01f);
 
 		{
@@ -346,6 +346,13 @@ int main(int argc, char **argv)
 		
 		double start__ = now();
 		tracer.update_scene(shapes.spheres, shapes.planes, lightSource);
+
+		options.aspectRatio = aspectRatio;
+		options.fieldOfViewScale = fieldOfViewScale;
+		options.set_matrix(cameraToWorld);
+
+		tracer.render(options, pixels);
+
 		average += now() - start__;
 		tick++;
 
@@ -355,12 +362,6 @@ int main(int argc, char **argv)
 			tick = 0;
 			average = 0.;
 		}
-
-		options.aspectRatio = aspectRatio;
-		options.fieldOfViewScale = fieldOfViewScale;
-		options.set_matrix(cameraToWorld);
-
-		tracer.render(options, pixels);
 
 		//doneWorkers = 0;
 
