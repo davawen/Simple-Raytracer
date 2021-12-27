@@ -5,25 +5,30 @@ struct RenderData
 
 	float4 cameraToWorldMatrix[4];
 };
+typedef struct RenderData RenderData;
 
 struct SceneData
 {
 	int numSpheres;
+	int numPlanes;
 	
 	float3 lightSource;
 };
+typedef struct SceneData SceneData;
 
 struct Ray
 {
 	float3 origin;
 	float3 direction;
 };
+typedef struct Ray Ray;
 
 struct Intersection
 {
 	float3 position;
 	float3 normal;
 };
+typedef struct Intersection Intersection;
 
 struct Material
 {
@@ -31,6 +36,7 @@ struct Material
 	float3 specular;
 	float specularExponent;
 };
+typedef struct Material Material;
 
 struct Sphere
 {
@@ -38,6 +44,7 @@ struct Sphere
 	float3 position;
 	float radius;
 };
+typedef struct Sphere Sphere;
 
 struct Plane
 {
@@ -45,6 +52,17 @@ struct Plane
 	float3 position;
 	float3 normal;
 };
+typedef struct Plane Plane;
+
+struct Scene
+{
+	const SceneData *data;
+
+	__global const Sphere *spheres;
+
+	__global const Plane *planes;
+};
+typedef struct Scene Scene;
 
 float4 matrixByVector(const float4 m[4], const float4 v)
 {
@@ -71,7 +89,7 @@ uint wang_hash(uint seed)
     return seed;
 }
 
-bool intersect_sphere(constant struct Sphere *sphere, const struct Ray *ray, float *t)
+bool intersect_sphere(__global const Sphere *sphere, const struct Ray *ray, float *t)
 {
 	float3 rayToCenter = sphere->position - ray->origin;
 	
@@ -96,49 +114,79 @@ bool intersect_sphere(constant struct Sphere *sphere, const struct Ray *ray, flo
 	return true;
 }
 
-bool intersect_plane(constant struct Plane *plane, const struct Ray *ray, float *t)
+bool intersect_plane(__global const Plane *plane, const struct Ray *ray, float *t)
 {
 	float denom = dot(plane->normal, ray->direction);
-	if(denom > 0.0f) return false;
-	*t = -dot(plane->normal, ray->origin - plane->position) / denom;
+
+	if(fabs(denom) == 0.f) return false;
+
+	float tmp = dot(plane->normal, plane->position - ray->origin ) / denom;
+
+	// Backwards intersection
+	if(tmp < 0.f) return false;
+
+	*t = tmp;
 	
 	return true;
 }
 
-constant struct Sphere *closest_intersection(const struct SceneData *scene, constant struct Sphere *spheres, const struct Ray *ray, struct Intersection *rayhit)
+__global const Material *closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhit)
 {
-	constant struct Sphere *closest = NULL;
+	__global const Material *closest = NULL;
 	float tmin = FLT_MAX;
 
-	for(size_t i = 0; i < scene->numSpheres; i++)
+	for(int i = 0; i < scene->data->numSpheres; i++)
 	{
+		__global const Sphere *sphere = &scene->spheres[i];
+
 		float t_i;
-		if(intersect_sphere(&spheres[i], ray, &t_i))
+		if(intersect_sphere(sphere, ray, &t_i))
 		{
 			if(t_i < tmin)
 			{
 				tmin = t_i;
-				closest = &spheres[i];
+				closest = &sphere->material;
+	
+				if(rayhit != NULL)
+				{ 
+					rayhit->position = ray->origin + ray->direction * tmin;
+					rayhit->normal = normalize(rayhit->position - sphere->position);
+					rayhit->position += rayhit->normal * 0.001f;
+				}
+			}
+		}
+	}
+
+	for(int i = 0; i < scene->data->numPlanes; i++)
+	{
+		__global const Plane *plane = &scene->planes[i];
+
+		float t_i;
+		if(intersect_plane(plane, ray, &t_i))
+		{
+			if(t_i < tmin)
+			{
+				tmin = t_i;
+				closest = &plane->material;
+	
+				if(rayhit != NULL)
+				{ 
+					rayhit->normal = dot(plane->normal, ray->direction) < 0.0f ? plane->normal : -plane->normal; // Reflect normal to face camera
+					rayhit->position = ray->origin + ray->direction * tmin + rayhit->normal * 0.001f;
+				}
 			}
 		}
 	}
 
 	if(tmin == FLT_MAX) return NULL;
 	
-	if(rayhit != NULL)
-	{ 
-		rayhit->position = ray->origin + ray->direction * tmin;
-		rayhit->normal = normalize(rayhit->position - closest->position);
-		rayhit->position += rayhit->normal * 0.001f;
-	}
-	
 	return closest;
 }
 
-float3 trace(const struct SceneData *scene, global const struct Sphere *spheres, const struct Ray *camray)
+float3 trace(const struct Scene *scene, const struct Ray *camray)
 {
-	struct Intersection rayhit;
-	struct Ray ray = *camray;
+	Intersection rayhit;
+	Ray ray = *camray;
 	
 	float3 color = (float3)(0.f);
 	float3 mask = (float3)(1.f);
@@ -147,17 +195,23 @@ float3 trace(const struct SceneData *scene, global const struct Sphere *spheres,
 	
 	for(size_t i = 1; i <= 1; i++)
 	{
-		constant struct Sphere *sphere = closest_intersection(scene, spheres, &ray, &rayhit);
+		__global const Material *material = closest_intersection(scene, &ray, &rayhit);
 	
-		if(sphere != NULL)
+		if(material != NULL)
 		{
-			float3 toLightsource = normalize(scene->lightSource - rayhit.position);
+			float3 toLightsource = normalize(scene->data->lightSource - rayhit.position);
+
+			Ray toLight = { .origin = rayhit.position, .direction = toLightsource };
+
+			bool inShadow = closest_intersection(scene, &toLight, NULL) != NULL;
 			
 			float3 reflected = reflect(-toLightsource, rayhit.normal);
 			
-			float3 phong = (sphere->material.color * (float3)(.3f, .65f, 1.f) * .1f) +
-				sphere->material.color * max(dot(toLightsource, rayhit.normal), 0.f) +
-				sphere->material.specular * pow(max(dot(reflected, -camray->direction), 0.f), sphere->material.specularExponent);
+			float3 phong = (material->color * (float3)(.3f, .65f, 1.f) * .1f) +
+				(1 - inShadow) * (
+					material->color * max(dot(toLightsource, rayhit.normal), 0.f) +
+					material->specular * pow(max(dot(reflected, -camray->direction), 0.f), material->specularExponent)
+				);
 			
 			color = phong;
 			
@@ -174,7 +228,7 @@ float3 trace(const struct SceneData *scene, global const struct Sphere *spheres,
 		}
 		else
 		{
-			if(dot(normalize(scene->lightSource - camray->origin), camray->direction) > 0.97f) color = (float3)(1.f);
+			if(dot(normalize(scene->data->lightSource - camray->origin), camray->direction) > 0.97f) color = (float3)(1.f);
 			else color = (float3)(.3f, .65f, 1.f); // Sky color
 			break;
 		}
@@ -184,7 +238,7 @@ float3 trace(const struct SceneData *scene, global const struct Sphere *spheres,
 }
 
 
-kernel void render(const struct RenderData data, const struct SceneData scene, global uchar4 *output, constant struct Sphere *spheres)
+__kernel void render(const struct RenderData data, const struct SceneData sceneData, __global uchar4 *output, __global const Sphere *spheres, __global const Plane *planes)
 {
 	const uint i = get_global_id(0);
 
@@ -196,7 +250,7 @@ kernel void render(const struct RenderData data, const struct SceneData scene, g
 
 	float3 cameraPos = (float3)(screenPos.x, screenPos.y, 1);
 
-	struct Ray ray;
+	Ray ray;
 	// 1 0 0 x 
 	// 0 1 0 y
 	// 0 0 1 z
@@ -210,7 +264,9 @@ kernel void render(const struct RenderData data, const struct SceneData scene, g
 		matrixByVector(data.cameraToWorldMatrix, (float4)(cameraPos.xyz, 0)).xyz
 	); 
 
-	float3 color = trace(&scene, spheres, &ray);
+	Scene scene = { .data = &sceneData, .spheres = spheres, .planes = planes };
+
+	float3 color = trace(&scene, &ray);
 
 	// ARGB
 	output[i] = (uchar4)(255, color.x*255.f, color.y*255.f, color.z * 255.f);

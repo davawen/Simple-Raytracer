@@ -5,8 +5,9 @@
 #define CL_TARGET_OPENCL_VERSION 300
 #include <boost/compute/core.hpp>
 #include <boost/compute/utility.hpp>
+#include <boost/compute/buffer.hpp>
 
-#include "shapes.hpp"
+#include "shape.hpp"
 
 namespace compute = boost::compute;
 
@@ -82,6 +83,7 @@ private:
 	struct CL_SceneData
 	{
 		cl_int numSpheres;
+		cl_int numPlanes;
 		cl_float3 lightSource;
 	} sceneData;
 public:
@@ -128,36 +130,41 @@ public:
 		// Create command queue
 		queue = compute::command_queue(context, device);
 
-		bufferScene = compute::buffer(context, 0);
+		bufferSpheres = compute::buffer(context, 0);
+		bufferPlanes = compute::buffer(context, 0);
+
 		bufferOutput = compute::buffer(context, sizeof(cl_uchar4) * width * height);
 
 		// Set arguments
 		kernel.set_arg(2, bufferOutput);
 	}
 
-	void update_scene(const std::vector<Shape *> &shapes, const glm::vec3 &lightSource)
+	void update_scene(const std::vector<Sphere> &inputSpheres, const std::vector<Plane> &inputPlanes, const glm::vec3 &lightSource)
 	{
-		std::vector<CL_Sphere> spheres;//(shapes.size());
-		std::vector<CL_Plane> planes;
+		std::vector<CL_Sphere> spheres;
+		spheres.reserve(inputSpheres.size());
 
-		for(auto &shape : shapes)
-		{
-			switch(shape->type)
-			{
-				case Shape::Type::SPHERE:
-					Sphere *sphere = reinterpret_cast<Sphere *>(shape);
-					spheres.push_back(CL_Sphere(sphere->));
-			}
-		}
+		std::vector<CL_Plane> planes;
+		planes.reserve(inputPlanes.size());
+
+		for(auto &sphere : inputSpheres) spheres.push_back(CL_Sphere(sphere.material, sphere.position, sphere.radius));
+		for(auto &plane : inputPlanes) planes.push_back(CL_Plane(plane.material, plane.position, plane.normal));
 		
 		// Only create new buffer if previous one is too small
-		if(bufferScene.size() < sizeof(CL_Sphere) * positions.size())
-			bufferScene = compute::buffer(context, sizeof(CL_Sphere) * positions.size()); // NOTE: Assigning releases old buffer, so this does not cause a memory leak
+		if(bufferSpheres.size() < sizeof(CL_Sphere) * spheres.size())
+			bufferSpheres = compute::buffer(context, sizeof(CL_Sphere) * spheres.size()); // NOTE: Assigning releases old buffer, so this does not cause a memory leak
 
-		queue.enqueue_write_buffer(bufferScene, 0, sizeof(CL_Sphere) * positions.size(), positions.data());
-		kernel.set_arg(3, bufferScene); // Point to new buffer
+		if(bufferPlanes.size() < sizeof(CL_Plane) * planes.size())
+			bufferPlanes = compute::buffer(context, sizeof(CL_Plane) * planes.size());
 
-		sceneData.numSpheres = positions.size();
+		queue.enqueue_write_buffer(bufferSpheres, 0, sizeof(CL_Sphere) * spheres.size(), spheres.data());
+		queue.enqueue_write_buffer(bufferPlanes, 0, sizeof(CL_Plane) * planes.size(), planes.data());
+
+		kernel.set_arg(3, bufferSpheres); // Point to new buffer
+		kernel.set_arg(4, bufferPlanes);
+
+		sceneData.numSpheres = spheres.size();
+		sceneData.numPlanes = planes.size();
 		sceneData.lightSource = VEC3TOCL(lightSource);
 		kernel.set_arg(1, sizeof(CL_SceneData), &sceneData);
 	}

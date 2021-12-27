@@ -32,14 +32,14 @@
 #include <SDL2/SDL.h>
 
 #include "color.hpp"
-#include "shapes.hpp"
+#include "shape.hpp"
 #include "ray_cast.hpp"
 #include "tracer.hpp"
 
 #endif
 
-#define WINDOW_WIDTH 600
-#define WINDOW_HEIGHT 600
+#define WINDOW_WIDTH 900
+#define WINDOW_HEIGHT 562
 
 #define FPS 30
 
@@ -109,30 +109,45 @@ int main(int argc, char **argv)
 
 	SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, WINDOW_WIDTH, WINDOW_HEIGHT);
 
-	std::vector<Shape *> shapes = {
-		new Sphere(
-			Material(color::gray, color::white, 10.f),
-			{ 50, 15, -50 },
-			10.f
-		),
-		new Sphere(
-			Material(color::from_RGB( 0x34, 0x7D, 0xD0 ), color::white, 10.f),
-			{ 100, 7, -50 },
-			7.f
-		),
-		new Sphere(
-			Material(color::from_RGB( 0xFF, 0x7D, 0xFF ), color::white, 10.f),
-			{ 80, 15, -70 },
-			14.f
-		),
-		new Plane(
-			Material(color::from_RGB( 0xbf, 0x5e, 0x22 ), color::gray, 0.6f),
-			{ 0, 0, 0 },
-			{ 0, 1, 0 }
-		)
-	};
+	struct
+	{
+		std::vector<Sphere> spheres/* = {
+			Sphere(
+					Material(color::gray, color::white, 10.f),
+					{ 50, 15, -50 },
+					10.f
+				  ),
+			Sphere(
+					Material(color::from_RGB( 0x34, 0x7D, 0xD0 ), color::white, 10.f),
+					{ 100, 7, -50 },
+					7.f
+				  ),
+			Sphere(
+					Material(color::from_RGB( 0xFF, 0x7D, 0xFF ), color::white, 10.f),
+					{ 80, 15, -70 },
+					14.f
+				  )
+		}*/;
 
-	// shapes[0]->material.emission = glm::vec3(1, 1, 1);
+		std::vector<Plane> planes = {
+			Plane(
+					Material(color::from_RGB( 0xbf, 0x5e, 0x22 ), color::black, 0.f),
+					{ 0, 0, 0 },
+					{ 0, 1, 0 }
+				 )
+		};
+	} shapes;
+
+	for(size_t i = 0; i < 100; i++)
+	{
+		shapes.spheres.push_back(
+			Sphere(
+				Material(color::from_hex(0x6d16e0), color::white, 10.f),
+				{ (i % 10) * 24., 15, (i / 10) * -24. },
+				10.f
+			)
+		);
+	}
 
 	Camera camera = { { 0, 10, 0 }, { glm::pi<float>(), -0.6f, glm::pi<float>() } };
 
@@ -146,7 +161,7 @@ int main(int argc, char **argv)
 	glm::mat4 cameraToWorld;
 
 	Tracer tracer(WINDOW_WIDTH, WINDOW_HEIGHT, file);
-	tracer.update_scene(shapes, lightSource);
+	tracer.update_scene(shapes.spheres, shapes.planes, lightSource);
 
 	Tracer::CL_RenderData options(WINDOW_WIDTH, WINDOW_HEIGHT);
 
@@ -154,58 +169,63 @@ int main(int argc, char **argv)
 
 	bool running = true;
 
+#if 0
 	std::atomic<size_t> doneWorkers = 0; // hack
-	// auto renderFrame = [&doneWorkers, &pixels, &lightSource, &shapes, &cameraToWorld, &aspectRatio, &fieldOfViewScale](const int workerIndex, const int numWorker) -> void
-	// {
-	// 	std::mt19937 generator;
+	auto renderFrame = [&doneWorkers, &pixels, &lightSource, &shapes, &cameraToWorld, &aspectRatio, &fieldOfViewScale](const int workerIndex, const int numWorker) -> void
+	{
+	 	std::mt19937 generator;
 
-	// 	int j = workerIndex;
+	 	int j = workerIndex;
 
-	// 	while(j < WINDOW_HEIGHT)
-	// 	{
-	// 		for(int i = 0; i < WINDOW_WIDTH; i++)
-	// 		{
+	 	while(j < WINDOW_HEIGHT)
+	 	{
+	 		for(int i = 0; i < WINDOW_WIDTH; i++)
+	 		{
 
-	// 			glm::vec2 windowPos(i, j); // Raster space coordinates
-	// 			glm::vec2 ndcPos((windowPos.x + .5f) / WINDOW_WIDTH, (windowPos.y + .5f) / WINDOW_HEIGHT); // Normalized coordinates
+	 			glm::vec2 windowPos(i, j); // Raster space coordinates
+	 			glm::vec2 ndcPos((windowPos.x + .5f) / WINDOW_WIDTH, (windowPos.y + .5f) / WINDOW_HEIGHT); // Normalized coordinates
 
-	// 			glm::vec2 screenPos((2.f * ndcPos.x - 1.f) * aspectRatio * fieldOfViewScale, (1.f - 2.f * ndcPos.y) * fieldOfViewScale); // Screen space coordinates (invert y axis)
+	 			glm::vec2 screenPos((2.f * ndcPos.x - 1.f) * aspectRatio * fieldOfViewScale, (1.f - 2.f * ndcPos.y) * fieldOfViewScale); // Screen space coordinates (invert y axis)
 
-	// 			glm::vec3 cameraPos(screenPos.x, screenPos.y, 1);
+	 			glm::vec3 cameraPos(screenPos.x, screenPos.y, 1);
 
-	// 			glm::vec3 rayOrigin = cameraToWorld * glm::vec4(0, 0, 0, 1);
+	 			glm::vec3 rayOrigin = cameraToWorld * glm::vec4(0, 0, 0, 1);
 
-	// 			// vec4 with 0 at the end is only affected by rotation, not translation
-	// 			// Only normalize 3d components
-	// 			glm::vec3 rayDirection = glm::normalize((cameraToWorld * glm::vec4(cameraPos, 0)).xyz()); 
+	 			// vec4 with 0 at the end is only affected by rotation, not translation
+	 			// Only normalize 3d components
+	 			glm::vec3 rayDirection = glm::normalize((cameraToWorld * glm::vec4(cameraPos, 0)).xyz()); 
 
-	// 			// SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0xFF);
-	// 			Color color = ray_cast(rayOrigin, rayDirection, shapes/*, lightSource, generator*/);
-	// 			color *= 255.f; // Cast into 0-255 range
+	 			// SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0xFF);
+	 			Color color = ray_cast(rayOrigin, rayDirection, shapes/*, lightSource, generator*/);
+	 			color *= 255.f; // Cast into 0-255 range
 
-	// 			// SDL_RenderDrawPoint(renderer, windowPos.x, windowPos.y);
-	// 			size_t idx = j*WINDOW_WIDTH*4 + i*4;
-	// 			
-	// 			// ARGB
-	// 			pixels[idx] = 0xFF;
-	// 			pixels[idx + 1] = static_cast<uint8_t>(color.r);
-	// 			pixels[idx + 2] = static_cast<uint8_t>(color.g);
-	// 			pixels[idx + 3] = static_cast<uint8_t>(color.b);
-	// 		}
+	 			// SDL_RenderDrawPoint(renderer, windowPos.x, windowPos.y);
+	 			size_t idx = j*WINDOW_WIDTH*4 + i*4;
+	 			
+	 			// ARGB
+	 			pixels[idx] = 0xFF;
+	 			pixels[idx + 1] = static_cast<uint8_t>(color.r);
+	 			pixels[idx + 2] = static_cast<uint8_t>(color.g);
+	 			pixels[idx + 3] = static_cast<uint8_t>(color.b);
+	 		}
 
-	// 		j += numWorker;
-	// 	}
+	 		j += numWorker;
+	 	}
 
-	// 	doneWorkers++;
-	// };
+	 	doneWorkers++;
+	};
 
-	//size_t numThreads = glm::min((int)std::thread::hardware_concurrency(), 8);
-	//boost::asio::thread_pool pool(numThreads);
+	size_t numThreads = glm::min((int)std::thread::hardware_concurrency(), 8);
+	boost::asio::thread_pool pool(numThreads);
+#endif
 
 	struct
 	{
 		bool forward, left, right, backwards, up, down;
 	} movementKeys = { false, false, false, false, false, false };
+
+	int tick = 0;
+	double average = 0.;
 
 	SDL_Event event;
 	while(running)
@@ -306,7 +326,7 @@ int main(int argc, char **argv)
 			}
 		}
 
-		shapes[0]->position.y += glm::sin(loopStartSec)*.2f;
+		for(auto &sphere : shapes.spheres) sphere.position.y += glm::sin(loopStartSec + sphere.position.x)*.2f;
 		// lightSource = glm::rotateZ(lightSource, 0.01f);
 
 		{
@@ -324,7 +344,17 @@ int main(int argc, char **argv)
 
 		// while(doneWorkers < numThreads){}
 		
-		tracer.update_scene(shapes, lightSource);
+		double start__ = now();
+		tracer.update_scene(shapes.spheres, shapes.planes, lightSource);
+		average += now() - start__;
+		tick++;
+
+		if(tick == 60)
+		{
+			std::cout << "Average time: " << average/60. << " µs\n";
+			tick = 0;
+			average = 0.;
+		}
 
 		options.aspectRatio = aspectRatio;
 		options.fieldOfViewScale = fieldOfViewScale;
@@ -332,7 +362,7 @@ int main(int argc, char **argv)
 
 		tracer.render(options, pixels);
 
-		doneWorkers = 0;
+		//doneWorkers = 0;
 
 		SDL_UpdateTexture(texture, NULL, pixels.data(), WINDOW_WIDTH * 4);
 		SDL_RenderCopy(renderer, texture, NULL, NULL);
@@ -345,10 +375,6 @@ int main(int argc, char **argv)
 
 	//pool.join();
 	
-	for(auto &shape : shapes)
-	{
-		delete shape;
-	}
 
 	SDL_DestroyRenderer(renderer);
 	SDL_DestroyWindow(window);

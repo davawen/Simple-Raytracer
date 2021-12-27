@@ -9,7 +9,7 @@
 #include <glm/gtx/norm.hpp>
 
 #include "color.hpp"
-#include "shapes.hpp"
+#include "shape.hpp"
 
 #define MAX_BOUNCE 4
 
