@@ -1,21 +1,3 @@
-struct RenderData
-{
-	int width, height;
-	float aspectRatio, fieldOfViewScale;
-
-	float4 cameraToWorldMatrix[4];
-};
-typedef struct RenderData RenderData;
-
-struct SceneData
-{
-	int numSpheres;
-	int numPlanes;
-	
-	float3 lightSource;
-};
-typedef struct SceneData SceneData;
-
 struct Ray
 {
 	float3 origin;
@@ -40,7 +22,7 @@ typedef struct Material Material;
 
 struct Sphere
 {
-	struct Material material;
+	Material material;
 	float3 position;
 	float radius;
 };
@@ -48,19 +30,45 @@ typedef struct Sphere Sphere;
 
 struct Plane
 {
-	struct Material material;
+	Material material;
 	float3 position;
 	float3 normal;
 };
 typedef struct Plane Plane;
 
+struct Triangle
+{
+	Material material;
+	float3 vertices[3];
+};
+typedef struct Triangle Triangle;
+
+struct RenderData
+{
+	int width, height;
+	float aspectRatio, fieldOfViewScale;
+
+	float4 cameraToWorldMatrix[4];
+};
+typedef struct RenderData RenderData;
+
+struct SceneData
+{
+	int numSpheres;
+	int numTriangles;
+	
+	float3 lightSource;
+};
+typedef struct SceneData SceneData;
+
 struct Scene
 {
 	const SceneData *data;
 
-	__global const Sphere *spheres;
+	__global const Plane *groundPlane;
 
-	__global const Plane *planes;
+	__global const Sphere *spheres;
+	__global const Triangle *triangles;
 };
 typedef struct Scene Scene;
 
@@ -130,6 +138,39 @@ bool intersect_plane(__global const Plane *plane, const struct Ray *ray, float *
 	return true;
 }
 
+float intersect_triangle(__global const Triangle *triangle, const Ray *ray, float *t)
+{
+	float3 edge1, edge2, h, s, q;
+	float a, f, u, v;
+
+	edge1 = triangle->vertices[1] - triangle->vertices[0];
+	edge2 = triangle->vertices[2] - triangle->vertices[0];
+
+	h = cross(ray->direction, edge2);
+	a = dot(edge1, h);
+
+	if(a == 0) return false;
+
+	f = 1.f / a;
+	s = ray->origin - triangle->vertices[0];
+	u = f * dot(s, h);
+	
+	if(u < 0.f || u > 1.f) return false;
+
+	q =	cross(s, edge1);
+	v = f * dot(ray->direction, q);
+
+	if(v < 0.f || u + v > 1.f) return false;
+
+	*t = f * dot(edge2, q);
+	if(*t > 0.f)
+	{
+		return true;
+	}
+
+	return false;
+}
+
 __global const Material *closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhit)
 {
 	__global const Material *closest = NULL;
@@ -157,9 +198,8 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 		}
 	}
 
-	for(int i = 0; i < scene->data->numPlanes; i++)
 	{
-		__global const Plane *plane = &scene->planes[i];
+		__global const Plane *plane = scene->groundPlane;
 
 		float t_i;
 		if(intersect_plane(plane, ray, &t_i))
@@ -173,6 +213,31 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 				{ 
 					rayhit->normal = dot(plane->normal, ray->direction) < 0.0f ? plane->normal : -plane->normal; // Reflect normal to face camera
 					rayhit->position = ray->origin + ray->direction * tmin + rayhit->normal * 0.001f;
+				}
+			}
+		}
+	}
+
+	for(int i = 0; i < scene->data->numTriangles; i++)
+	{
+		__global const Triangle *triangle = &scene->triangles[i];
+
+		float t_i;
+		if(intersect_triangle(triangle, ray, &t_i))
+		{
+			if(t_i < tmin)
+			{
+				tmin = t_i;
+				closest = &triangle->material;
+
+				if(rayhit != NULL)
+				{
+					float3 A = triangle->vertices[1] - triangle->vertices[0];
+					float3 B = triangle->vertices[2] - triangle->vertices[0];
+
+					rayhit->normal = normalize((float3)(A.y * B.z - A.z * B.y, A.z * B.x - A.x * B.z, A.x * B.y - A.y * B.x));
+					rayhit->normal = dot(rayhit->normal, ray->direction) < 0.0f ? rayhit->normal : -rayhit->normal; // Reflect normal to face camera
+					rayhit->position = ray->origin + ray->direction * tmin + rayhit->normal * .001f;
 				}
 			}
 		}
@@ -238,7 +303,7 @@ float3 trace(const struct Scene *scene, const struct Ray *camray)
 }
 
 
-__kernel void render(const struct RenderData data, const struct SceneData sceneData, __global uchar4 *output, __global const Sphere *spheres, __global const Plane *planes)
+__kernel void render(const struct RenderData data, const struct SceneData sceneData, __global uchar4 *output, __global const Plane *groundPlane, __global const Sphere *spheres, __global const Triangle *triangles)
 {
 	const uint i = get_global_id(0);
 
@@ -264,7 +329,7 @@ __kernel void render(const struct RenderData data, const struct SceneData sceneD
 		matrixByVector(data.cameraToWorldMatrix, (float4)(cameraPos.xyz, 0)).xyz
 	); 
 
-	Scene scene = { .data = &sceneData, .spheres = spheres, .planes = planes };
+	Scene scene = { .data = &sceneData, .groundPlane = groundPlane, .spheres = spheres, .triangles = triangles };
 
 	float3 color = trace(&scene, &ray);
 

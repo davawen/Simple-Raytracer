@@ -7,12 +7,25 @@
 #include <boost/compute/utility.hpp>
 #include <boost/compute/buffer.hpp>
 
+#define GLM_FORCE_SWIZZLE
+#include <glm/glm.hpp>
+
+#include <glm/gtx/rotate_vector.hpp>
+
 #include "shape.hpp"
 
 namespace compute = boost::compute;
 
 #define VEC3TOCL(v) (cl_float3({{ (v).x, (v).y, (v).z }}))
 #define VEC4TOCL(v) (cl_float4({{ (v).x, (v).y, (v).z, (v).w }}))
+
+static void rebuild_if_too_small(compute::buffer &buffer, size_t size)
+{
+	if(buffer.size() < size)
+	{
+		buffer = compute::buffer(buffer.get_context(), size);
+	}
+}
 
 class Tracer
 {
@@ -56,7 +69,7 @@ private:
 		CL_Sphere()
 		{
 			this->material = CL_Material();
-			this->position = {{ 0.f, 0.f, 0.f }};
+			this->position = {{ 0.f }};
 			this->radius = 0.f;
 		}
 
@@ -86,8 +99,8 @@ private:
 		CL_Plane()
 		{
 			this->material = CL_Material();
-			this->position = {{ 0.f, 0.f, 0.f }};
-			this->normal = {{ 0.f, 0.f, 0.f }};
+			this->position = {{ 0.f }};
+			this->normal = {{ 0.f }};
 		}
 
 		CL_Plane(const Material &material, const glm::vec3 &pos, const glm::vec3 &normal)
@@ -107,20 +120,43 @@ private:
 		}
 	};
 
+	struct CL_Triangle
+	{
+		CL_Material material;
+		cl_float3 vertices[3];
+
+		CL_Triangle()
+		{
+			this->material = CL_Material();
+			for(auto &v : vertices){ v = {{ 0.f }}; };
+		}
+
+		CL_Triangle(const Material &material, const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2)
+		{
+			this->material = CL_Material(material);
+			this->vertices[0] = VEC3TOCL(v0);
+			this->vertices[1] = VEC3TOCL(v1);
+			this->vertices[2] = VEC3TOCL(v2);
+		}
+	};
+
 	struct CL_SceneData
 	{
 		cl_int numSpheres;
-		cl_int numPlanes;
+		cl_int numTriangles;
+
 		cl_float3 lightSource;
 	} sceneData;
 
 	struct
 	{
+		compute::buffer bufferGroundPlane;
+
 		compute::buffer bufferSpheres;
-		compute::buffer bufferPlanes;
+		compute::buffer bufferTriangles;
 
 		std::vector<CL_Sphere> spheres;
-		std::vector<CL_Plane> planes;
+		std::vector<CL_Triangle> triangles;
 	} shapes;
 public:
 
@@ -166,45 +202,75 @@ public:
 		// Create command queue
 		queue = compute::command_queue(context, device);
 
+		shapes.bufferGroundPlane = compute::buffer(context, sizeof(CL_Plane));
+
 		shapes.bufferSpheres = compute::buffer(context, 0);
-		shapes.bufferPlanes = compute::buffer(context, 0);
+		shapes.bufferTriangles = compute::buffer(context, 0);
 
 		bufferOutput = compute::buffer(context, sizeof(cl_uchar4) * width * height);
 
 		// Set arguments
 		kernel.set_arg(2, bufferOutput);
+		kernel.set_arg(3, shapes.bufferGroundPlane);
 	}
 
-	void update_scene(const std::vector<Sphere> &inputSpheres, const std::vector<Plane> &inputPlanes, const glm::vec3 &lightSource)
+	void update_scene(const std::vector<Sphere> &inputSpheres, const Plane &groundPlane, const std::vector<Box> &inputBoxes, const glm::vec3 &lightSource)
 	{
 		shapes.spheres.resize(inputSpheres.size());
-		shapes.planes.resize(inputPlanes.size());
 
-		for(size_t i = 0; i < inputSpheres.size(); i++)
+		shapes.triangles.clear();
+
+		for(size_t i = 0; i < inputSpheres.size(); i++) shapes.spheres[i] = CL_Sphere(inputSpheres[i]);
+		for(auto &box : inputBoxes)
 		{
-			shapes.spheres[i] = CL_Sphere(inputSpheres[i]);
-		}
-		
-		for(size_t i = 0; i < inputPlanes.size(); i++)
-		{
-			shapes.planes[i] = CL_Plane(inputPlanes[i]);
+			// o---o
+			// |\   \
+			// | o---o
+			// \ |   |
+			//  \o---o
+			//z ↑y
+			//\ →x
+
+			shapes.triangles.resize(shapes.triangles.size() + 2*6); // 2 triangles per face
+			
+			glm::vec3 minCorner = box.position - glm::rotateY(box.size/2.f, 2.f);
+			glm::vec3 maxCorner = box.position + glm::rotateY(box.size/2.f, 2.f);
+
+			shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { maxCorner.x, minCorner.yz() }, { maxCorner.x, minCorner.y, maxCorner.z }));
+			shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { minCorner.xy(), maxCorner.z }, { maxCorner.x, minCorner.y, maxCorner.z }));
+
+			shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { maxCorner.x, minCorner.yz() }, { maxCorner.xy(), minCorner.z }));
+			shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { minCorner.x, maxCorner.y, minCorner.z }, { maxCorner.xy(), minCorner.z }));
+
+			shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { minCorner.xy(), maxCorner.z }, { minCorner.x, maxCorner.yz() }));
+			shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { minCorner.x, maxCorner.y, minCorner.z }, { minCorner.x, maxCorner.yz() }));
+
+			// shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { maxCorner.x, minCorner.yz() }, { maxCorner.x, minCorner.y, maxCorner.z }));
+			// shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { maxCorner.x, minCorner.yz() }, { maxCorner.x, minCorner.y, maxCorner.z }));
+
+			// shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { maxCorner.x, minCorner.yz() }, { maxCorner.x, minCorner.y, maxCorner.z }));
+			// shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { maxCorner.x, minCorner.yz() }, { maxCorner.x, minCorner.y, maxCorner.z }));
+
+			// shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { maxCorner.x, minCorner.yz() }, { maxCorner.x, minCorner.y, maxCorner.z }));
+			// shapes.triangles.push_back(CL_Triangle(box.material, minCorner, { maxCorner.x, minCorner.yz() }, { maxCorner.x, minCorner.y, maxCorner.z }));
 		}
 
 		// Only create new buffer if previous one is too small
-		if(shapes.bufferSpheres.size() < sizeof(CL_Sphere) * shapes.spheres.size())
-			shapes.bufferSpheres = compute::buffer(context, sizeof(CL_Sphere) * shapes.spheres.size()); // NOTE: Assigning releases old buffer, so this does not cause a memory leak
-
-		if(shapes.bufferPlanes.size() < sizeof(CL_Plane) * shapes.planes.size())
-			shapes.bufferPlanes = compute::buffer(context, sizeof(CL_Plane) * shapes.planes.size());
+		rebuild_if_too_small(shapes.bufferSpheres, sizeof(CL_Sphere) * shapes.spheres.size());
+		rebuild_if_too_small(shapes.bufferTriangles, sizeof(CL_Triangle) * shapes.triangles.size());
+		
+		CL_Plane tmpPlane(groundPlane);
+		queue.enqueue_write_buffer(shapes.bufferGroundPlane, 0, sizeof(CL_Plane), &tmpPlane);
 
 		if(shapes.spheres.size() > 0) queue.enqueue_write_buffer(shapes.bufferSpheres, 0, sizeof(CL_Sphere) * shapes.spheres.size(), shapes.spheres.data());
-		if(shapes.planes.size() > 0) queue.enqueue_write_buffer(shapes.bufferPlanes, 0, sizeof(CL_Plane) * shapes.planes.size(), shapes.planes.data());
+		if(shapes.triangles.size() > 0) queue.enqueue_write_buffer(shapes.bufferTriangles, 0, sizeof(CL_Triangle) * shapes.triangles.size(), shapes.triangles.data());
 
-		kernel.set_arg(3, shapes.bufferSpheres); // Point to new buffer
-		kernel.set_arg(4, shapes.bufferPlanes);
+		kernel.set_arg(4, shapes.bufferSpheres); // Point to new buffer
+		kernel.set_arg(5, shapes.bufferTriangles);
 
 		sceneData.numSpheres = shapes.spheres.size();
-		sceneData.numPlanes = shapes.planes.size();
+		sceneData.numTriangles = shapes.triangles.size();
+
 		sceneData.lightSource = VEC3TOCL(lightSource);
 		kernel.set_arg(1, sizeof(CL_SceneData), &sceneData);
 	}

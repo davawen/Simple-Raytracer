@@ -1,7 +1,7 @@
 #include "shape.hpp"
 
 
-Sphere::Sphere(Material material, glm::vec3 position, float radius)
+Sphere::Sphere(const Material &material, const glm::vec3 &position, float radius)
 {
 	this->material = material;
 	this->position = position;
@@ -20,7 +20,7 @@ bool Sphere::intersectRay(const glm::vec3 &rayOrigin, const glm::vec3 &rayDirect
 	return false;
 }
 
-Plane::Plane(Material material, glm::vec3 position, glm::vec3 normal)
+Plane::Plane(const Material &material, const glm::vec3 &position, const glm::vec3 &normal)
 {
 	this->material = material;
 	this->position = position;
@@ -39,5 +39,18 @@ bool Plane::intersectRay(const glm::vec3 &rayOrigin, const glm::vec3 &rayDirecti
 		return true;
 	}
 
+	return false;
+}
+
+Box::Box(const Material &material, const glm::vec3 &position, const glm::vec3 &size)
+{
+	this->material = material;
+
+	this->position = position;
+	this->size = size;
+}
+
+bool Box::intersectRay(const glm::vec3 &rayOrigin, const glm::vec3 &rayDirection, glm::vec3 &intersectionPoint, glm::vec3 &intersectionNormal) const
+{
 	return false;
 }

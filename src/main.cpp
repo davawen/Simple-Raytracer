@@ -111,7 +111,7 @@ int main(int argc, char **argv)
 
 	struct
 	{
-		std::vector<Sphere> spheres/* = {
+		std::vector<Sphere> spheres = {
 			Sphere(
 					Material(color::gray, color::white, 10.f),
 					{ 50, 15, -50 },
@@ -127,31 +127,26 @@ int main(int argc, char **argv)
 					{ 80, 15, -70 },
 					14.f
 				  )
-		}*/;
+		};
 
-		std::vector<Plane> planes = {
-			Plane(
-					Material(color::from_RGB( 0xbf, 0x5e, 0x22 ), color::black, 0.f),
-					{ 0, 0, 0 },
-					{ 0, 1, 0 }
-				 )
+		std::vector<Box> boxes = {
+			Box(
+				Material(color::from_RGB(0x4f, 0x12, 0x13), color::gray, 10.f),
+				{ 10, 20, 40 },
+				{ 20, 12, 20 }
+		   )
 		};
 	} shapes;
 
-	for(size_t i = 0; i < 400; i++)
-	{
-		shapes.spheres.push_back(
-			Sphere(
-				Material(color::from_hex(0x6d16e0), color::white, 10.f),
-				{ (i % 20) * 24., 15, (i / 20) * -24. },
-				10.f
-			)
-		);
-	}
+	Plane groundPlane = Plane(
+		Material(color::from_RGB( 0xbf, 0x5e, 0x22 ), color::black, 0.f),
+		{ 0, 0, 0 },
+		{ 0, 1, 0 }
+	);
 
 	Camera camera = { { 0, 10, 0 }, { glm::pi<float>(), -0.6f, glm::pi<float>() } };
 
-	glm::vec3 lightSource(0, 100, 0);
+	glm::vec3 lightSource(0, 10000, 0);
 
 	float aspectRatio = static_cast<float>(WINDOW_WIDTH) / WINDOW_HEIGHT;
 	float fieldOfView = glm::pi<float>() / 2.f; // 90 degrees
@@ -161,7 +156,6 @@ int main(int argc, char **argv)
 	glm::mat4 cameraToWorld;
 
 	Tracer tracer(WINDOW_WIDTH, WINDOW_HEIGHT, file);
-	tracer.update_scene(shapes.spheres, shapes.planes, lightSource);
 
 	Tracer::CL_RenderData options(WINDOW_WIDTH, WINDOW_HEIGHT);
 
@@ -330,7 +324,7 @@ int main(int argc, char **argv)
 		// lightSource = glm::rotateZ(lightSource, 0.01f);
 
 		{
-			const glm::vec3 movement = glm::normalize(glm::vec3(cameraToWorld * glm::vec4(movementKeys.right - movementKeys.left, movementKeys.up - movementKeys.down, movementKeys.forward - movementKeys.backwards, 0))); // 0 at the end nullify's translation
+			const glm::vec3 movement = glm::normalize(glm::vec3(cameraToWorld * glm::vec4(movementKeys.right - movementKeys.left, 0, movementKeys.forward - movementKeys.backwards, 0)) + glm::vec3(0, movementKeys.up - movementKeys.down, 0)); // 0 at the end nullify's translation
 
 			if(!glm::all(glm::isnan(movement))) camera.position += movement;
 		}
@@ -345,7 +339,7 @@ int main(int argc, char **argv)
 		// while(doneWorkers < numThreads){}
 		
 		double start__ = now();
-		tracer.update_scene(shapes.spheres, shapes.planes, lightSource);
+		tracer.update_scene(shapes.spheres, groundPlane, shapes.boxes, lightSource);
 
 		options.aspectRatio = aspectRatio;
 		options.fieldOfViewScale = fieldOfViewScale;
