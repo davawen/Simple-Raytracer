@@ -2,16 +2,27 @@
 
 #include <glm/glm.hpp>
 
+#define CL_TARGET_OPENCL_VERSION 300
+#include <boost/compute/types.hpp>
+
 #include "color.hpp"
 
 struct Material
 {
-	Color color;
+	enum Type
+	{
+		DIFFUSE,
+		REFLECTIVE
+	};
 
-	Color specular;
-	float specularExponent;
+	Type type;
 
-	Color emission;
+	alignas(cl_float3) Color color;
+
+	alignas(cl_float3) Color specular;
+	alignas(cl_float3) float specularExponent;
+
+	alignas(cl_float3) Color emission;
 
 	Material(){}
 	Material(const Color &color, const Color &specular, float specularExponent)

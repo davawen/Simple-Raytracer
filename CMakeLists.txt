@@ -47,9 +47,26 @@ find_package(OpenCL REQUIRED)
 target_include_directories(${PROJECT_NAME} PRIVATE ${OpenCL_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} ${OpenCL_LIBRARIES})
 
+# Kernel file
+# Custom targets depends on non exsisting file
+add_custom_target(opencl_kernel ALL
+	DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/kernel
+)
+
+# Command says it produces that file, so it's always run
+add_custom_command(
+	OUTPUT
+		${CMAKE_CURRENT_BINARY_DIR}/kernel
+		${CMAKE_CURRENT_BINARY_DIR}/kernel.cl
+	COMMAND
+		ln -sf
+		${CMAKE_SOURCE_DIR}/src/render.cl
+		${CMAKE_CURRENT_BINARY_DIR}/kernel.cl
+)
+
 # Compilation
 
-target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	target_compile_options(${PROJECT_NAME} PRIVATE /W4)

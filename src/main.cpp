@@ -1,5 +1,3 @@
-#if 1
-
 #include <cstdint>
 #include <iostream>
 #include <thread>
@@ -10,11 +8,13 @@
 #include <functional>
 #include <condition_variable>
 #include <random>
-
-#include <boost/bind/bind.hpp>
-#include <boost/asio.hpp>
+#include <fstream>
 
 #include <sys/time.h>
+
+#define CL_TARGET_OPENCL_VERSION 300
+#include <boost/bind/bind.hpp>
+#include <boost/asio.hpp>
 
 #define GLM_FORCE_SWIZZLE
 #include <glm/glm.hpp>
@@ -36,10 +36,11 @@
 #include "ray_cast.hpp"
 #include "tracer.hpp"
 
-#endif
-
 #define WINDOW_WIDTH 900
 #define WINDOW_HEIGHT 562
+
+#define RENDER_WIDTH (WINDOW_WIDTH)
+#define RENDER_HEIGHT (WINDOW_HEIGHT)
 
 #define FPS 30
 
@@ -74,6 +75,21 @@ inline glm::vec3 uniform_sample_hemisphere(const float &r1, const float &r2)
     return glm::vec3(x, r1, z); 
 }
 
+void save_ppm(std::vector<uint8_t> &pixels) {
+	std::ofstream file;
+	file.open("out.ppm", std::ios::binary | std::ios::out);
+	std::string header = "P6 ";
+	header += std::to_string(WINDOW_WIDTH) + ' ' + std::to_string(WINDOW_HEIGHT) + ' ';
+	header += "255\n";
+	file.write(header.c_str(), header.size());
+
+	for(size_t i = 0; i < pixels.size(); i += 4) {
+		uint8_t *p = &pixels[i]; // ARGB
+
+		file.write((char *)p + 1, 3);
+	}
+}
+
 
 long now()
 {
@@ -83,15 +99,13 @@ long now()
 	return curr.tv_sec * 1000000 + curr.tv_usec;
 }
 
-int main(int argc, char **argv)
+int main(int argc, char **)
 {
-	if(argc != 2)
+	if(argc != 1)
 	{
-		printf("Usage: tracer [path/to/render.cl]");
+		printf("Usage: tracer");
 		return -1;
 	}
-
-	std::string file = argv[1];
 
 	SDL_Renderer *renderer;
 	SDL_Window *window;
@@ -99,6 +113,7 @@ int main(int argc, char **argv)
 	SDL_Init(SDL_INIT_VIDEO);
 	
 	SDL_CreateWindowAndRenderer(WINDOW_WIDTH, WINDOW_HEIGHT, 0, &window, &renderer);
+
 	SDL_SetRelativeMouseMode(SDL_TRUE);
 
 	SDL_RendererInfo info;
@@ -107,59 +122,57 @@ int main(int argc, char **argv)
 	SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
 	SDL_RenderClear(renderer);
 
-	SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, WINDOW_WIDTH, WINDOW_HEIGHT);
+	SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, RENDER_WIDTH, RENDER_HEIGHT);
 
-	struct
-	{
-		std::vector<Sphere> spheres = {
-			Sphere(
-					Material(color::gray, color::white, 10.f),
-					{ 50, 15, -50 },
-					10.f
-				  ),
-			Sphere(
-					Material(color::from_RGB( 0x34, 0x7D, 0xD0 ), color::white, 10.f),
-					{ 100, 7, -50 },
-					7.f
-				  ),
-			Sphere(
-					Material(color::from_RGB( 0xFF, 0x7D, 0xFF ), color::white, 10.f),
-					{ 80, 15, -70 },
-					14.f
-				  )
-		};
+	std::vector<Shape> shapes;
 
-		std::vector<Box> boxes = {
-			Box(
-				Material(color::from_RGB(0x4f, 0x12, 0x13), color::gray, 10.f),
-				{ 10, 20, 40 },
-				{ 20, 12, 20 }
-		   )
-		};
-	} shapes;
+	Box box = {
+		Box(
+			Material(color::from_RGB(0x4f, 0x12, 0x13), color::gray, 10.f),
+			{ 10, 20, -110 },
+			{ 20, 12, 20 }
+	   )
+	};
+	box.material.type = Material::Type::REFLECTIVE;
+	auto box_t = box.to_triangles();
+	std::transform(box_t.begin(), box_t.end(), std::back_inserter(shapes), [](Triangle &t) { return Shape(t); });
 
 	Plane groundPlane = Plane(
-		Material(color::from_RGB( 0xbf, 0x5e, 0x22 ), color::black, 0.f),
+		Material(color::from_RGB( 0xDF, 0x2F, 0x00 ), color::black, 0.f),
 		{ 0, 0, 0 },
 		{ 0, 1, 0 }
 	);
+	shapes.push_back(groundPlane);
+
+	for(size_t i = 0; i < 30; i++)
+	{
+		shapes.push_back(Shape(
+			Sphere(
+				Material(color::from_RGB(rand() % 256, rand() % 256, rand() % 256), color::white, (rand() % 1000) / 100.f + 2.f),
+				{ rand() % 300, rand() % 20 + 15, rand() % 300 },
+				(rand() % 1000) / 100.f + 5.f
+			)
+		));
+
+		if(rand() % 3 == 0) shapes.back().shape.sphere.material.type = Material::Type::REFLECTIVE;
+	}
 
 	Camera camera = { { 0, 10, 0 }, { glm::pi<float>(), -0.6f, glm::pi<float>() } };
 
 	glm::vec3 lightSource(0, 10000, 0);
 
-	float aspectRatio = static_cast<float>(WINDOW_WIDTH) / WINDOW_HEIGHT;
+	float aspectRatio = static_cast<float>(RENDER_WIDTH) / RENDER_HEIGHT;
 	float fieldOfView = glm::pi<float>() / 2.f; // 90 degrees
 
 	float fieldOfViewScale = glm::tan(fieldOfView / 2.f);
 
 	glm::mat4 cameraToWorld;
 
-	Tracer tracer(WINDOW_WIDTH, WINDOW_HEIGHT, file);
+	Tracer tracer(RENDER_WIDTH, RENDER_HEIGHT);
 
-	Tracer::CL_RenderData options(WINDOW_WIDTH, WINDOW_HEIGHT);
+	Tracer::RenderData options(RENDER_WIDTH, RENDER_HEIGHT);
 
-	std::vector<uint8_t> pixels(WINDOW_WIDTH * WINDOW_HEIGHT * 4);
+	std::vector<uint8_t> pixels(RENDER_WIDTH * RENDER_HEIGHT * 4);
 
 	bool running = true;
 
@@ -171,13 +184,13 @@ int main(int argc, char **argv)
 
 	 	int j = workerIndex;
 
-	 	while(j < WINDOW_HEIGHT)
+	 	while(j < RENDER_HEIGHT)
 	 	{
-	 		for(int i = 0; i < WINDOW_WIDTH; i++)
+	 		for(int i = 0; i < RENDER_WIDTH; i++)
 	 		{
 
 	 			glm::vec2 windowPos(i, j); // Raster space coordinates
-	 			glm::vec2 ndcPos((windowPos.x + .5f) / WINDOW_WIDTH, (windowPos.y + .5f) / WINDOW_HEIGHT); // Normalized coordinates
+	 			glm::vec2 ndcPos((windowPos.x + .5f) / RENDER_WIDTH, (windowPos.y + .5f) / RENDER_HEIGHT); // Normalized coordinates
 
 	 			glm::vec2 screenPos((2.f * ndcPos.x - 1.f) * aspectRatio * fieldOfViewScale, (1.f - 2.f * ndcPos.y) * fieldOfViewScale); // Screen space coordinates (invert y axis)
 
@@ -194,7 +207,7 @@ int main(int argc, char **argv)
 	 			color *= 255.f; // Cast into 0-255 range
 
 	 			// SDL_RenderDrawPoint(renderer, windowPos.x, windowPos.y);
-	 			size_t idx = j*WINDOW_WIDTH*4 + i*4;
+	 			size_t idx = j*RENDER_WIDTH*4 + i*4;
 	 			
 	 			// ARGB
 	 			pixels[idx] = 0xFF;
@@ -220,6 +233,7 @@ int main(int argc, char **argv)
 
 	int tick = 0;
 	double average = 0.;
+	bool save = false;
 
 	SDL_Event event;
 	while(running)
@@ -254,6 +268,9 @@ int main(int argc, char **argv)
 							break;
 						case SDLK_SPACE:
 							movementKeys.up = true;
+							break;
+						case SDLK_p:
+							save = true;
 							break;
 					}
 					break;
@@ -320,13 +337,21 @@ int main(int argc, char **argv)
 			}
 		}
 
-		for(auto &sphere : shapes.spheres) sphere.position.y += glm::sin(loopStartSec + sphere.position.x + sphere.position.z)*.2f;
+		for(auto &s : shapes) {
+			if(s.type == SHAPE_SPHERE) {
+				auto &sphere = s.shape.sphere;
+				sphere.position.y += glm::sin(loopStartSec + sphere.position.x + sphere.position.z)*.2f;
+			}
+		}
 		// lightSource = glm::rotateZ(lightSource, 0.01f);
 
 		{
 			const glm::vec3 movement = glm::normalize(glm::vec3(cameraToWorld * glm::vec4(movementKeys.right - movementKeys.left, 0, movementKeys.forward - movementKeys.backwards, 0)) + glm::vec3(0, movementKeys.up - movementKeys.down, 0)); // 0 at the end nullify's translation
 
-			if(!glm::all(glm::isnan(movement))) camera.position += movement;
+			if(!glm::all(glm::isnan(movement)))
+			{
+				camera.position += movement;
+			}
 		}
 
 		cameraToWorld = view_matrix(camera);
@@ -337,15 +362,41 @@ int main(int argc, char **argv)
 		// }
 
 		// while(doneWorkers < numThreads){}
-		
+
 		double start__ = now();
-		tracer.update_scene(shapes.spheres, groundPlane, shapes.boxes, lightSource);
 
-		options.aspectRatio = aspectRatio;
-		options.fieldOfViewScale = fieldOfViewScale;
-		options.set_matrix(cameraToWorld);
+		//if(options.stepsNotMoved >= 0)
+		{
+			tracer.update_scene(shapes, lightSource);
 
-		tracer.render(options, pixels);
+			if(!save) {
+				options.numSamples = 4;
+			}
+			else {
+				options.numSamples = 3048;
+			}
+
+			options.aspectRatio = aspectRatio;
+			options.fieldOfViewScale = fieldOfViewScale;
+			options.set_matrix(cameraToWorld);
+			options.time = loopStart / 1000;
+			options.tick = tick;
+
+			tracer.render(options, pixels);
+
+			if(save) {
+				save_ppm(pixels);
+				save = false;
+			}
+
+			//doneWorkers = 0;
+
+			SDL_UpdateTexture(texture, NULL, pixels.data(), RENDER_WIDTH * 4);
+
+			const SDL_Rect dstRect = { .x = 0, .y = 0, .w = WINDOW_WIDTH, .h = WINDOW_HEIGHT };
+			SDL_RenderCopy(renderer, texture, NULL, &dstRect);
+			SDL_RenderPresent(renderer);
+		}
 
 		average += now() - start__;
 		tick++;
@@ -356,12 +407,6 @@ int main(int argc, char **argv)
 			tick = 0;
 			average = 0.;
 		}
-
-		//doneWorkers = 0;
-
-		SDL_UpdateTexture(texture, NULL, pixels.data(), WINDOW_WIDTH * 4);
-		SDL_RenderCopy(renderer, texture, NULL, NULL);
-		SDL_RenderPresent(renderer);
 
 		// Limit framerate 
 		long loopDuration = (now() - loopStart);
