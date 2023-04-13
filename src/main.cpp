@@ -176,62 +176,13 @@ int main(int argc, char **)
 
 	bool running = true;
 
-#if 0
-	std::atomic<size_t> doneWorkers = 0; // hack
-	auto renderFrame = [&doneWorkers, &pixels, &lightSource, &shapes, &cameraToWorld, &aspectRatio, &fieldOfViewScale](const int workerIndex, const int numWorker) -> void
-	{
-	 	std::mt19937 generator;
-
-	 	int j = workerIndex;
-
-	 	while(j < RENDER_HEIGHT)
-	 	{
-	 		for(int i = 0; i < RENDER_WIDTH; i++)
-	 		{
-
-	 			glm::vec2 windowPos(i, j); // Raster space coordinates
-	 			glm::vec2 ndcPos((windowPos.x + .5f) / RENDER_WIDTH, (windowPos.y + .5f) / RENDER_HEIGHT); // Normalized coordinates
-
-	 			glm::vec2 screenPos((2.f * ndcPos.x - 1.f) * aspectRatio * fieldOfViewScale, (1.f - 2.f * ndcPos.y) * fieldOfViewScale); // Screen space coordinates (invert y axis)
-
-	 			glm::vec3 cameraPos(screenPos.x, screenPos.y, 1);
-
-	 			glm::vec3 rayOrigin = cameraToWorld * glm::vec4(0, 0, 0, 1);
-
-	 			// vec4 with 0 at the end is only affected by rotation, not translation
-	 			// Only normalize 3d components
-	 			glm::vec3 rayDirection = glm::normalize((cameraToWorld * glm::vec4(cameraPos, 0)).xyz()); 
-
-	 			// SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0xFF);
-	 			Color color = ray_cast(rayOrigin, rayDirection, shapes/*, lightSource, generator*/);
-	 			color *= 255.f; // Cast into 0-255 range
-
-	 			// SDL_RenderDrawPoint(renderer, windowPos.x, windowPos.y);
-	 			size_t idx = j*RENDER_WIDTH*4 + i*4;
-	 			
-	 			// ARGB
-	 			pixels[idx] = 0xFF;
-	 			pixels[idx + 1] = static_cast<uint8_t>(color.r);
-	 			pixels[idx + 2] = static_cast<uint8_t>(color.g);
-	 			pixels[idx + 3] = static_cast<uint8_t>(color.b);
-	 		}
-
-	 		j += numWorker;
-	 	}
-
-	 	doneWorkers++;
-	};
-
-	size_t numThreads = glm::min((int)std::thread::hardware_concurrency(), 8);
-	boost::asio::thread_pool pool(numThreads);
-#endif
-
 	struct
 	{
 		bool forward, left, right, backwards, up, down;
 	} movementKeys = { false, false, false, false, false, false };
 
 	int tick = 0;
+	cl_uint time_not_moved = 0;
 	double average = 0.;
 	bool save = false;
 
@@ -251,7 +202,7 @@ int main(int argc, char **)
 				case SDL_KEYDOWN:
 					switch(event.key.keysym.sym)
 					{
-						case SDLK_z:
+						case SDLK_w:
 							movementKeys.forward = true;
 							break;
 						case SDLK_s:
@@ -289,7 +240,7 @@ int main(int argc, char **)
 						case SDLK_l:
 							camera.rotation.y += glm::pi<float>() / 25.f;
 							break;
-						case SDLK_z:
+						case SDLK_w:
 							movementKeys.forward = false;
 							break;
 						case SDLK_s:
@@ -310,99 +261,86 @@ int main(int argc, char **)
 					}
 					break;
 				case SDL_MOUSEWHEEL:
-					if(event.wheel.y > 0)
-					{
+					if(event.wheel.y > 0) {
 						fieldOfView += glm::pi<float>() / 180.f; // 1 degree
 					}
-					else if(event.wheel.y < 0)
-					{
+					else if(event.wheel.y < 0) {
 						fieldOfView -= glm::pi<float>() / 180.f; // 1 degree
 					}
 
 					fieldOfViewScale = glm::tan(fieldOfView / 2.f);
+					time_not_moved = 0;
 					break;
 				case SDL_MOUSEMOTION:
-					if(event.motion.xrel != 0)
-					{
+					if(event.motion.xrel != 0) {
 						camera.rotation.y += glm::pi<float>() * event.motion.xrel / 1000.f * fieldOfViewScale;
 					}
 
-					if(event.motion.yrel != 0)
-					{
+					if(event.motion.yrel != 0) {
 						camera.rotation.x += glm::pi<float>() * event.motion.yrel / 1000.f * fieldOfViewScale;
 					}
+					time_not_moved = 0;
 					break;
 				default:
 					break;
 			}
 		}
 
-		for(auto &s : shapes) {
-			if(s.type == SHAPE_SPHERE) {
-				auto &sphere = s.shape.sphere;
-				sphere.position.y += glm::sin(loopStartSec + sphere.position.x + sphere.position.z)*.2f;
-			}
-		}
+		// for(auto &s : shapes) {
+		// 	if(s.type == SHAPE_SPHERE) {
+		// 		auto &sphere = s.shape.sphere;
+		// 		sphere.position.y += glm::sin(loopStartSec + sphere.position.x + sphere.position.z)*.2f;
+		// 	}
+		// }
 		// lightSource = glm::rotateZ(lightSource, 0.01f);
 
 		{
 			const glm::vec3 movement = glm::normalize(glm::vec3(cameraToWorld * glm::vec4(movementKeys.right - movementKeys.left, 0, movementKeys.forward - movementKeys.backwards, 0)) + glm::vec3(0, movementKeys.up - movementKeys.down, 0)); // 0 at the end nullify's translation
 
-			if(!glm::all(glm::isnan(movement)))
-			{
+			if(!glm::all(glm::isnan(movement)) && !glm::isNull(movement, glm::epsilon<float>())) {
 				camera.position += movement;
+				time_not_moved = 0;
 			}
 		}
 
 		cameraToWorld = view_matrix(camera);
 
-		// for(size_t i = 0; i < numThreads; i++)
-		// {
-		// 	boost::asio::post(pool, boost::bind<void>(renderFrame, i, numThreads));
-		// }
-
-		// while(doneWorkers < numThreads){}
-
 		double start__ = now();
 
-		//if(options.stepsNotMoved >= 0)
-		{
-			tracer.update_scene(shapes, lightSource);
-
-			if(!save) {
-				options.numSamples = 4;
-			}
-			else {
-				options.numSamples = 3048;
-			}
-
-			options.aspectRatio = aspectRatio;
-			options.fieldOfViewScale = fieldOfViewScale;
-			options.set_matrix(cameraToWorld);
-			options.time = loopStart / 1000;
-			options.tick = tick;
-
-			tracer.render(options, pixels);
-
-			if(save) {
-				save_ppm(pixels);
-				save = false;
-			}
-
-			//doneWorkers = 0;
-
-			SDL_UpdateTexture(texture, NULL, pixels.data(), RENDER_WIDTH * 4);
-
-			const SDL_Rect dstRect = { .x = 0, .y = 0, .w = WINDOW_WIDTH, .h = WINDOW_HEIGHT };
-			SDL_RenderCopy(renderer, texture, NULL, &dstRect);
-			SDL_RenderPresent(renderer);
+		if(time_not_moved == 0) {
+			tracer.clear_canvas();
+			time_not_moved = 1;
 		}
+
+		tracer.update_scene(shapes, lightSource);
+
+		// options.numSamples = save ? 3048 : 4;
+		options.numSamples = 4;
+
+		options.aspectRatio = aspectRatio;
+		options.fieldOfViewScale = fieldOfViewScale;
+		options.set_matrix(cameraToWorld);
+		options.time = loopStart / 1000;
+		options.tick = tick;
+
+		tracer.render(time_not_moved, options, pixels);
+
+		if(save) {
+			save_ppm(pixels);
+			save = false;
+		}
+
+		SDL_UpdateTexture(texture, NULL, pixels.data(), RENDER_WIDTH * 4);
+
+		const SDL_Rect dstRect = { .x = 0, .y = 0, .w = WINDOW_WIDTH, .h = WINDOW_HEIGHT };
+		SDL_RenderCopy(renderer, texture, NULL, &dstRect);
+		SDL_RenderPresent(renderer);
 
 		average += now() - start__;
 		tick++;
+		time_not_moved++;
 
-		if(tick == 60)
-		{
+		if(tick == 60) {
 			std::cout << "Average time: " << average/60. << " µs\n";
 			tick = 0;
 			average = 0.;
@@ -412,9 +350,6 @@ int main(int argc, char **)
 		long loopDuration = (now() - loopStart);
 		if(loopDuration < (1'000'000 / FPS)) SDL_Delay((1'000'000 / FPS - loopDuration) / 1000);
 	}
-
-	//pool.join();
-	
 
 	SDL_DestroyRenderer(renderer);
 	SDL_DestroyWindow(window);

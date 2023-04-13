@@ -373,7 +373,7 @@ float random_float(uint *seed) {
 	return ((float)*seed) / (float)UINT_MAX;
 }
 
-__kernel void render(const struct RenderData data, const struct SceneData sceneData, __global uchar4 *output, __global const Shape *shapes)
+__kernel void render(const struct RenderData data, const struct SceneData sceneData, __global float3 *output, __global const Shape *shapes)
 {
 	const uint id = get_global_id(0);
 
@@ -383,7 +383,7 @@ __kernel void render(const struct RenderData data, const struct SceneData sceneD
 	float3 color = (float3)(0.f);
 	for(int sample = 0; sample < data.numSamples; sample++)
 	{ 
-		uint seed = sample + id*data.numSamples;
+		uint seed = (sample + id*data.numSamples)*data.time*5304;
 
 		float2 ndcPos = (float2)((windowPos.x + random_float(&seed)) / data.width, (windowPos.y + random_float(&seed)) / data.height); // Normalized coordinates
 		float2 screenPos = (float2)((2.f * ndcPos.x - 1.f) * data.aspectRatio * data.fieldOfViewScale, (1.f - 2.f * ndcPos.y) * data.fieldOfViewScale); // Screen space coordinates (invert y axis)
@@ -405,12 +405,19 @@ __kernel void render(const struct RenderData data, const struct SceneData sceneD
 
 		color += trace(&scene, &ray, seed/* + (data.time<<3)*/);
 	}
-	
 	color /= data.numSamples;
+
+	output[id] += color;
+}
+
+__kernel void average(const uint num_steps, __global const float3 *canvas, __global uchar4 *output) {
+	const uint id = get_global_id(0);
+
+	float3 color = canvas[id] / num_steps;
 
 	color = aces(color);
 	color = sqrt(color);
 
 	// ARGB
-	output[id] = (uchar4)(255, color.x*255.f, color.y*255.f, color.z * 255.f);
+	output[id] = (uchar4)(255, color.x * 255.0f, color.y * 255.0f, color.z * 255.0f);
 }
