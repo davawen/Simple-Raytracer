@@ -22,30 +22,40 @@ project(${PROJECT_NAME} VERSION 1.0 LANGUAGES CXX)
 # Add source files
 file(GLOB_RECURSE SOURCE_FILES 
 	${CMAKE_SOURCE_DIR}/src/*.c
-	${CMAKE_SOURCE_DIR}/src/*.cpp)
+	${CMAKE_SOURCE_DIR}/src/*.cpp
+	${CMAKE_SOURCE_DIR}/imgui/*.cpp
+)
 
 # Add header files
 file(GLOB_RECURSE HEADER_FILES 
 	${CMAKE_SOURCE_DIR}/include/*.h
-	${CMAKE_SOURCE_DIR}/include/*.hpp)
+	${CMAKE_SOURCE_DIR}/include/*.hpp
+	${CMAKE_SOURCE_DIR}/imgui/*.h
+	${CMAKE_SOURCE_DIR}/imgui/*.hpp
+)
 
 add_executable(${PROJECT_NAME} ${HEADER_FILES} ${SOURCE_FILES})
 
 # Headers
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/imgui)
 
 # Libraries
 set(THREADS_PREFER_PTHREAD_FLAG ON)
+
 find_package(Threads REQUIRED)
-target_link_libraries(${PROJECT_NAME} Threads::Threads)
-
 find_package(SDL2 REQUIRED)
-target_include_directories(${PROJECT_NAME} PRIVATE ${SDL2_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} ${SDL2_LIBRARIES})
-
 find_package(OpenCL REQUIRED)
-target_include_directories(${PROJECT_NAME} PRIVATE ${OpenCL_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} ${OpenCL_LIBRARIES})
+# find_package(imgui REQUIRED)
+
+target_include_directories(${PROJECT_NAME} PRIVATE 
+	${SDL2_INCLUDE_DIRS}
+	${OpenCL_INCLUDE_DIRS}
+)
+target_link_libraries(${PROJECT_NAME} PRIVATE
+	Threads::Threads
+	${SDL2_LIBRARIES}
+	${OpenCL_LIBRARIES}
+)
 
 # Kernel file
 # Custom targets depends on non exsisting file

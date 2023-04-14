@@ -43,6 +43,7 @@ class Tracer {
     struct RenderData {
         cl_int width, height;
         cl_int num_samples;
+        cl_int num_bounces;
         cl_float aspect_ratio, fov_scale;
 
         cl_float4 camera_to_world[4];
@@ -53,6 +54,8 @@ class Tracer {
         RenderData(int width, int height) {
             this->width = width;
             this->height = height;
+			this->num_samples = 4;
+			this->num_bounces = 10;
         }
 
         void set_matrix(const glm::mat4 &camera_to_world_matrix) {

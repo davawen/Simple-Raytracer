@@ -51,10 +51,6 @@ void Tracer::update_scene(const std::vector<Shape> &input_shapes) {
     // Generate triangles
     // shapes.triangles.clear();
 
-    // for(auto &box : inputBoxes)
-    // {
-    // }
-
     kernel.set_arg(3, shapes.buffer_shapes); // Point to new buffer
 
     scene_data.num_shapes = input_shapes.size();

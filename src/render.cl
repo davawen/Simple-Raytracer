@@ -1,47 +1,40 @@
-#define MAX_BOUNCE 10
 #ifndef NULL
 #define NULL 0
 #endif
 
-struct Ray {
+typedef struct {
     float3 origin;
     float3 direction;
-};
-typedef struct Ray Ray;
+} Ray;
 
-struct Intersection {
+typedef struct {
     float3 position;
     float3 normal;
-};
-typedef struct Intersection Intersection;
+} Intersection;
 
-struct Material {
+typedef struct {
     float3 color;
     float smoothness;
 
     float3 emission;
-};
-typedef struct Material Material;
+} Material;
 
-struct Sphere {
+typedef struct {
     Material material;
     float3 position;
     float radius;
-};
-typedef struct Sphere Sphere;
+} Sphere;
 
-struct Plane {
+typedef struct {
     Material material;
     float3 position;
     float3 normal;
-};
-typedef struct Plane Plane;
+} Plane;
 
-struct Triangle {
+typedef struct {
     Material material;
     float3 vertices[3];
-};
-typedef struct Triangle Triangle;
+} Triangle;
 
 typedef enum {
     SHAPE_SPHERE,
@@ -58,19 +51,19 @@ typedef struct {
     } shape;
 } Shape;
 
-struct RenderData {
+typedef struct {
     int width, height;
     int num_samples;
+    int num_bounces;
     float aspect_ratio, fov_scale;
 
     float4 camera_to_world[4];
 
     uint time;
     uint tick;
-};
-typedef struct RenderData RenderData;
+} RenderData;
 
-struct SceneData {
+typedef struct {
     int num_shapes;
 
     float3 horizon_color;
@@ -79,14 +72,12 @@ struct SceneData {
     float sun_focus;
     float3 sun_color;
     float3 sun_direction;
-};
-typedef struct SceneData SceneData;
+} SceneData;
 
-struct Scene {
+typedef struct {
     const SceneData *data;
     __global const Shape *shapes;
-};
-typedef struct Scene Scene;
+} Scene;
 
 float4 matrix_by_vector(const float4 m[4], const float4 v) {
     return (float4)(m[0].x * v.x + m[1].x * v.y + m[2].x * v.z + m[3].x * v.w,
@@ -121,7 +112,7 @@ float3 random_direction_hemisphere(float3 normal, uint *seed) {
     return dir * sign(dot(normal, dir));
 }
 
-bool intersect_sphere(__global const Sphere *sphere, const struct Ray *ray, float *t) {
+bool intersect_sphere(__global const Sphere *sphere, const Ray *ray, float *t) {
     float3 rayToCenter = sphere->position - ray->origin;
 
     /* calculate coefficients a, b, c from quadratic equation */
@@ -147,7 +138,7 @@ bool intersect_sphere(__global const Sphere *sphere, const struct Ray *ray, floa
     return true;
 }
 
-bool intersect_plane(__global const Plane *plane, const struct Ray *ray, float *t) {
+bool intersect_plane(__global const Plane *plane, const Ray *ray, float *t) {
     float denom = dot(plane->normal, ray->direction);
 
     if (fabs(denom) == 0.f)
@@ -283,30 +274,31 @@ float3 sky_box(Ray ray, const Scene *scene) {
     return mix(scene->data->ground_color, sky_gradient, ground_to_sky) + sun * sun_mask;
 }
 
-float3 trace(const Scene *scene, Ray *camray, uint seed) {
+float3 trace(int num_bounces, const Scene *scene, Ray *camray, uint seed) {
     float3 color = (float3)(0.f);
     float3 mask = (float3)(1.f);
 
     Ray ray = *camray;
     Intersection rayhit;
 
-    for (size_t i = 0; i < MAX_BOUNCE; i++) {
+    for (int i = 0; i < num_bounces; i++) {
         __global const Material *material = closest_intersection(scene, &ray, &rayhit);
 
         if (material != NULL) {
-            mask *= material->color;
             color += mask * material->emission;
 
-            if (i == MAX_BOUNCE)
+            if (i == num_bounces - 1)
                 break; // Don't compute new bounce if it's the last one
 
             float3 reflected_dir = reflect(ray.direction, rayhit.normal);
-            float3 random_dir = random_direction_hemisphere(rayhit.normal, &seed);
+
+            // cosine weighted distribution
+            float3 random_dir = normalize(rayhit.normal + random_direction_hemisphere(rayhit.normal, &seed));
 
             ray.origin = rayhit.position;
             ray.direction = normalize(mix(random_dir, reflected_dir, material->smoothness));
 
-            mask *= dot(normalize(mix(ray.direction, rayhit.normal, material->smoothness)), rayhit.normal);
+            mask *= material->color;
         } else { // No collision -- Sky
             mask *= sky_box(ray, scene);
             color += mask;
@@ -327,7 +319,7 @@ float3 aces(float3 x) {
     return clamp((x * (x * a + b)) / (x * (x * c + d) + e), (float3)(0.0f), (float3)(1.0f));
 }
 
-__kernel void render(const struct RenderData data, const struct SceneData sceneData, __global float3 *output,
+__kernel void render(const RenderData data, const SceneData sceneData, __global float3 *output,
                      __global const Shape *shapes) {
     const uint id = get_global_id(0);
 
@@ -357,7 +349,7 @@ __kernel void render(const struct RenderData data, const struct SceneData sceneD
         // Only normalize 3d components
         ray.direction = normalize(matrix_by_vector(data.camera_to_world, (float4)(cameraPos.xyz, 0)).xyz);
 
-        color += trace(&scene, &ray, seed /* + (data.time<<3)*/);
+        color += trace(data.num_bounces, &scene, &ray, seed /* + (data.time<<3)*/);
     }
     color /= data.num_samples;
 
