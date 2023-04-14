@@ -17,19 +17,10 @@ struct Intersection
 };
 typedef struct Intersection Intersection;
 
-enum MaterialType
-{
-	MATERIAL_DIFFUSE,
-	MATERIAL_REFLECTIVE
-};
-
 struct Material
 {
-	enum MaterialType type;
-
 	float3 color;
-	float3 specular;
-	float specularExponent;
+	float smoothness;
 
 	float3 emission;
 };
@@ -116,14 +107,27 @@ float3 reflect(const float3 v, const float3 n)
 	return v - 2.0f*dot(v, n)*n;
 }
 
-uint wang_hash(uint seed)
+float random_float(uint *seed)
 {
-    seed = (seed ^ 61) ^ (seed >> 16);
-    seed *= 9;
-    seed = seed ^ (seed >> 4);
-    seed *= 0x27d4eb2d;
-    seed = seed ^ (seed >> 15);
-    return seed;
+	*seed = *seed * 747796405 + 2891336453;
+	uint result = ((*seed >> ((*seed >> 28) + 4)) ^ *seed) * 277803737;
+	result = (result >> 22) ^ result;
+    return (float)result / (float)UINT_MAX;
+}
+
+float random_float_normal(uint *seed) {
+	float theta = 2 * M_PI_F * random_float(seed);
+	float rho = sqrt(-2.0f * log(random_float(seed)));
+	return rho * cos(theta);
+}
+
+float3 random_direction(uint *seed) {
+	return normalize((float3)(random_float_normal(seed), random_float_normal(seed), random_float_normal(seed)));
+}
+
+float3 random_direction_hemisphere(float3 normal, uint *seed) {
+	float3 dir = random_direction(seed);
+	return dir * sign(dot(normal, dir));
 }
 
 bool intersect_sphere(__global const Sphere *sphere, const struct Ray *ray, float *t)
@@ -276,10 +280,12 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 	return closest;
 }
 
+float3 sky_box(const Scene *scene) {
+	return (float3)(0.5, 0.5, 0.5);
+}
+
 float3 trace(const struct Scene *scene, struct Ray *camray, uint seed)
 {
-	const float metallic = 0.3f;
-	
 	float3 color = (float3)(0.f);
 	float3 mask = (float3)(1.f);
 
@@ -292,70 +298,43 @@ float3 trace(const struct Scene *scene, struct Ray *camray, uint seed)
 	
 		if(material != NULL)
 		{
-			if(material->type == MATERIAL_REFLECTIVE)
-			{
-				float3 reflected = reflect(ray.direction, rayhit.normal);
-				
-				ray.direction = reflected;
-				
-				mask *= (float3)(1 - metallic) + material->color*(metallic);
-			}
-			else
-			{ 
-				float3 toLightsource = normalize(scene->data->lightSource - rayhit.position);
+			mask *= material->color;
+			color += mask * material->emission;
 
-				/* Ray toLight = { .origin = rayhit.position, .direction = toLightsource }; */
+			if(i == MAX_BOUNCE) break; // Don't compute new bounce if it's the last one
+			
+			float3 lightsource_dir = normalize(scene->data->lightSource - rayhit.position);
+			float3 reflected_dir = reflect(ray.direction, rayhit.normal);
+			float3 random_dir = random_direction_hemisphere(rayhit.normal, &seed);
 
-				/* float3 reflected = reflect(-toLightsource, rayhit.normal); */
-				
-				/* if(closest_intersection(scene, &toLight, NULL) == NULL) // if not in shadow */
-				/* {  */
-				/* 	float3 phong = ( */
-				/* 		material->color * max(dot(toLightsource, rayhit.normal), 0.f) + */
-				/* 		material->specular * pow(max(dot(reflected, -ray.direction), 0.f), material->specularExponent) */
-				/* 	); */
-				/* 	color += mask*phong; */
-				/* } */
-				
-				mask *= material->color;
+			ray.origin = rayhit.position;
+			ray.direction = mix(random_dir, reflected_dir, material->smoothness);
 
-				if(i == MAX_BOUNCE) break; // Don't compute new bounce if it's the last one
-				
-				// Generate new diffuse rays
-				seed = wang_hash(seed);
-				float rand1 = (float)seed / (float)UINT_MAX * 2 * M_PI_F;
-				seed = wang_hash(seed);
-				float rand2 = (float)seed / (float)UINT_MAX;
-				float rand2s = sqrt(rand2);
-
-				// Create local orthogonal plane centered at hitpoint
-				float3 w = rayhit.normal;
-				float3 axis = fabs(w.x) > 0.1f ? (float3)(0.0f, 1.0f, 0.0f) : (float3)(1.0f, 0.0f, 0.0f);
-				float3 u = normalize(cross(axis, w));
-				float3 v = cross(w, u);
-
-				// Use random numbers and coordinate frame to generate a new ray in a half circle
-				ray.origin = rayhit.position;
-				ray.direction = normalize(u * cos(rand1)*rand2s + v*sin(rand1)*rand2s + w*sqrt(1.0f - rand2));
-
-				mask *= dot(ray.direction, rayhit.normal);
-			}
+			mask *= dot(mix(ray.direction, rayhit.normal, material->smoothness), rayhit.normal);
 		}
 		else // No collision -- Sky
 		{
-			const float intensity = 1000.0f;
 
-			if(dot(normalize(scene->data->lightSource - ray.origin), ray.direction) < 0.95f) // If not in the sun
-				mask *= (float3)(.3f, .65f, 1.f); // Sky color
-			else
-				mask *= (float3)(intensity);
+			// const float3 sun_color = (float3)(1.0, 0.8, 0.0) * 1000.0f;
+			// const float3 sky_color = (float3)(.3f, .65f, 1.f);
+			//
+			// float sun_dir = dot(normalize(scene->data->lightSource - ray.origin), ray.direction);
+			//
+			// float3 sun_point = mix(sky_color, sun_color, sun_dir-.95f);
+			// mask *= sun_point;
+
+			//if( < 0.95f) // If not in the sun
+			//	mask *= ; // Sky color
+			//else
+				
+			mask *= sky_box(scene);
 
 			color += mask;
 			break;
 		}
 	}
 	
-	return clamp(color, (float3)(0.f), (float3)(1.f));
+	return color;
 }
 
 float3 aces(float3 x) {
@@ -365,12 +344,7 @@ float3 aces(float3 x) {
     float d = 0.59f;
     float e = 0.14f;
 
-    return (x*(x*a + b))/(x*(x*c + d) + e);
-}
-
-float random_float(uint *seed) {
-	*seed = wang_hash(*seed);
-	return ((float)*seed) / (float)UINT_MAX;
+    return clamp((x*(x*a + b))/(x*(x*c + d) + e), (float3)(0.0f), (float3)(1.0f));
 }
 
 __kernel void render(const struct RenderData data, const struct SceneData sceneData, __global float3 *output, __global const Shape *shapes)

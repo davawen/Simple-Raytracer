@@ -1,20 +1,10 @@
 #include <cstdint>
 #include <iostream>
-#include <thread>
 #include <vector>
-#include <optional>
-#include <utility>
-#include <queue>
-#include <functional>
-#include <condition_variable>
+#include <chrono>
 #include <random>
-#include <fstream>
-
-#include <sys/time.h>
 
 #define CL_TARGET_OPENCL_VERSION 300
-#include <boost/bind/bind.hpp>
-#include <boost/asio.hpp>
 
 #define GLM_FORCE_SWIZZLE
 #include <glm/glm.hpp>
@@ -91,12 +81,8 @@ void save_ppm(std::vector<uint8_t> &pixels) {
 }
 
 
-long now()
-{
-	timeval curr;
-	gettimeofday(&curr, 0);
-
-	return curr.tv_sec * 1000000 + curr.tv_usec;
+double now() {
+	return std::chrono::high_resolution_clock::now().time_since_epoch().count() / 1'000'000'000.0;
 }
 
 int main(int argc, char **)
@@ -128,17 +114,16 @@ int main(int argc, char **)
 
 	Box box = {
 		Box(
-			Material(color::from_RGB(0x4f, 0x12, 0x13), color::gray, 10.f),
+			Material(color::from_RGB(0x4f, 0x12, 0x13), 1.0f),
 			{ 10, 20, -110 },
 			{ 20, 12, 20 }
 	   )
 	};
-	box.material.type = Material::Type::REFLECTIVE;
 	auto box_t = box.to_triangles();
 	std::transform(box_t.begin(), box_t.end(), std::back_inserter(shapes), [](Triangle &t) { return Shape(t); });
 
 	Plane groundPlane = Plane(
-		Material(color::from_RGB( 0xDF, 0x2F, 0x00 ), color::black, 0.f),
+		Material(color::from_RGB( 0xDF, 0x2F, 0x00 ), 0.0f),
 		{ 0, 0, 0 },
 		{ 0, 1, 0 }
 	);
@@ -146,20 +131,20 @@ int main(int argc, char **)
 
 	for(size_t i = 0; i < 30; i++)
 	{
-		shapes.push_back(Shape(
-			Sphere(
-				Material(color::from_RGB(rand() % 256, rand() % 256, rand() % 256), color::white, (rand() % 1000) / 100.f + 2.f),
-				{ rand() % 300, rand() % 20 + 15, rand() % 300 },
-				(rand() % 1000) / 100.f + 5.f
-			)
-		));
+		auto sphere = Sphere(
+			Material(color::from_RGB(rand() % 256, rand() % 256, rand() % 256), (rand() % 1000) / 1000.f),
+			{ rand() % 300, rand() % 20 + 15, rand() % 300 },
+			(rand() % 1000) / 100.f + 5.f
+		);
 
-		if(rand() % 3 == 0) shapes.back().shape.sphere.material.type = Material::Type::REFLECTIVE;
+		if (rand() % 3 == 0) {
+			sphere.material.smoothness = 1.0;
+		}
+
+		shapes.push_back(std::move(sphere));
 	}
 
 	Camera camera = { { 0, 10, 0 }, { glm::pi<float>(), -0.6f, glm::pi<float>() } };
-
-	glm::vec3 lightSource(0, 10000, 0);
 
 	float aspectRatio = static_cast<float>(RENDER_WIDTH) / RENDER_HEIGHT;
 	float fieldOfView = glm::pi<float>() / 2.f; // 90 degrees
@@ -182,15 +167,16 @@ int main(int argc, char **)
 	} movementKeys = { false, false, false, false, false, false };
 
 	int tick = 0;
-	cl_uint time_not_moved = 0;
+	cl_uint time_not_moved = 1;
 	double average = 0.;
 	bool save = false;
+
+	double program_start = now();
 
 	SDL_Event event;
 	while(running)
 	{
-		long loopStart = now();
-		double loopStartSec = loopStart / 1'000'000.;
+		double start = now();
 
 		while(SDL_PollEvent(&event) != 0)
 		{
@@ -269,7 +255,7 @@ int main(int argc, char **)
 					}
 
 					fieldOfViewScale = glm::tan(fieldOfView / 2.f);
-					time_not_moved = 0;
+					time_not_moved = 1;
 					break;
 				case SDL_MOUSEMOTION:
 					if(event.motion.xrel != 0) {
@@ -279,7 +265,7 @@ int main(int argc, char **)
 					if(event.motion.yrel != 0) {
 						camera.rotation.x += glm::pi<float>() * event.motion.yrel / 1000.f * fieldOfViewScale;
 					}
-					time_not_moved = 0;
+					time_not_moved = 1;
 					break;
 				default:
 					break;
@@ -299,28 +285,25 @@ int main(int argc, char **)
 
 			if(!glm::all(glm::isnan(movement)) && !glm::isNull(movement, glm::epsilon<float>())) {
 				camera.position += movement;
-				time_not_moved = 0;
+				time_not_moved = 1;
 			}
 		}
 
 		cameraToWorld = view_matrix(camera);
 
-		double start__ = now();
-
-		if(time_not_moved == 0) {
+		if(time_not_moved == 1) {
 			tracer.clear_canvas();
-			time_not_moved = 1;
+			options.numSamples = 3;
+		} else {
+			options.numSamples = 6;
 		}
 
-		tracer.update_scene(shapes, lightSource);
-
-		// options.numSamples = save ? 3048 : 4;
-		options.numSamples = 4;
+		tracer.update_scene(shapes, glm::vec3(0.0, 1.0, 0.0));
 
 		options.aspectRatio = aspectRatio;
 		options.fieldOfViewScale = fieldOfViewScale;
 		options.set_matrix(cameraToWorld);
-		options.time = loopStart / 1000;
+		options.time = start * 1000;
 		options.tick = tick;
 
 		tracer.render(time_not_moved, options, pixels);
@@ -336,19 +319,19 @@ int main(int argc, char **)
 		SDL_RenderCopy(renderer, texture, NULL, &dstRect);
 		SDL_RenderPresent(renderer);
 
-		average += now() - start__;
+		average += now() - start;
 		tick++;
 		time_not_moved++;
 
 		if(tick == 60) {
-			std::cout << "Average time: " << average/60. << " µs\n";
+			std::cout << "Average time: " << average * 1000.0 / 60.0 << " ms\n";
 			tick = 0;
 			average = 0.;
 		}
 
 		// Limit framerate 
-		long loopDuration = (now() - loopStart);
-		if(loopDuration < (1'000'000 / FPS)) SDL_Delay((1'000'000 / FPS - loopDuration) / 1000);
+		double loop_duration = (now() - start);
+		if(loop_duration < 1./FPS) SDL_Delay((1./FPS - loop_duration) * 1000);
 	}
 
 	SDL_DestroyRenderer(renderer);

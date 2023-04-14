@@ -9,38 +9,16 @@
 
 struct Material
 {
-	enum Type
-	{
-		DIFFUSE,
-		REFLECTIVE
-	};
-
-	Type type;
-
 	alignas(cl_float3) Color color;
-
-	alignas(cl_float3) Color specular;
-	alignas(cl_float3) float specularExponent;
+	alignas(cl_float3) float smoothness;
 
 	alignas(cl_float3) Color emission;
 
 	Material(){}
-	Material(const Color &color, const Color &specular, float specularExponent)
+	Material(const Color &color, const float smoothness = 0.0f, const Color &emission = color::black)
 	{
 		this->color = color;
-		
-		this->specular = specular;
-		this->specularExponent = specularExponent;
-		
-		this->emission = color::black;
-	}
-
-	Material(const Color &color, const Color &specular, float specularExponent, const Color &emission)
-	{
-		this->color = color;
-		
-		this->specular = specular;
-		this->specularExponent = specularExponent;
+		this->smoothness = smoothness;
 		
 		this->emission = emission;
 	}
