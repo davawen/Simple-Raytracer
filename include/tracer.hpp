@@ -30,17 +30,11 @@ class Tracer {
 
     compute::command_queue queue;
 
-    compute::buffer renderCanvas;
-    compute::buffer renderOutput;
-
-    struct SceneData {
-        cl_int numShapes;
-
-        cl_float3 lightSource;
-    } sceneData;
+    compute::buffer render_canvas;
+    compute::buffer render_output;
 
     struct {
-        compute::buffer bufferShapes;
+        compute::buffer buffer_shapes;
 
         std::vector<Triangle> triangles;
     } shapes;
@@ -48,10 +42,10 @@ class Tracer {
   public:
     struct RenderData {
         cl_int width, height;
-        cl_int numSamples;
-        cl_float aspectRatio, fieldOfViewScale;
+        cl_int num_samples;
+        cl_float aspect_ratio, fov_scale;
 
-        cl_float4 cameraToWorldMatrix[4];
+        cl_float4 camera_to_world[4];
 
         cl_uint time;
         cl_uint tick;
@@ -61,18 +55,27 @@ class Tracer {
             this->height = height;
         }
 
-        void set_matrix(const glm::mat4 &cameraToWorld) {
+        void set_matrix(const glm::mat4 &camera_to_world_matrix) {
             for (size_t i = 0; i < 4; i++) {
-                // cameraToWorldMatrix[i] = {{ cameraToWorld[i].x, cameraToWorld[i].y, cameraToWorld[i].z,
-                // cameraToWorld[i].w }};
-                cameraToWorldMatrix[i] = VEC4TOCL(cameraToWorld[i]);
+                camera_to_world[i] = VEC4TOCL(camera_to_world_matrix[i]);
             }
         }
     };
 
+    struct SceneData {
+        cl_int num_shapes;
+
+		cl_float3 horizon_color;
+		cl_float3 zenith_color;
+		cl_float3 ground_color;
+		cl_float sun_focus;
+		cl_float3 sun_color;
+        cl_float3 sun_direction;
+    } scene_data;
+
     Tracer(const int width, const int height);
 
-    void update_scene(const std::vector<Shape> &inputShape, const glm::vec3 &lightSource);
+    void update_scene(const std::vector<Shape> &inputShape);
 
     void clear_canvas();
     void render(cl_uint ticks_stopped, RenderData &renderData, std::vector<uint8_t> &output);

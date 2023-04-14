@@ -29,23 +29,23 @@ Tracer::Tracer(const int width, const int height) {
     // Create command queue
     queue = compute::command_queue(context, device);
 
-    shapes.bufferShapes = compute::buffer(context, 0);
+    shapes.buffer_shapes = compute::buffer(context, 0);
 
-    renderCanvas = compute::buffer(context, sizeof(cl_float3) * width * height);
-    renderOutput = compute::buffer(context, sizeof(cl_uchar4) * width * height);
+    render_canvas = compute::buffer(context, sizeof(cl_float3) * width * height);
+    render_output = compute::buffer(context, sizeof(cl_uchar4) * width * height);
 
     // Set arguments
-    kernel.set_arg(2, renderCanvas);
-    kernel.set_arg(3, shapes.bufferShapes);
+    kernel.set_arg(2, render_canvas);
+    kernel.set_arg(3, shapes.buffer_shapes);
 
-    average_kernel.set_arg(1, renderCanvas);
-    average_kernel.set_arg(2, renderOutput);
+    average_kernel.set_arg(1, render_canvas);
+    average_kernel.set_arg(2, render_output);
 }
 
-void Tracer::update_scene(const std::vector<Shape> &inputShapes, const glm::vec3 &lightSource) {
-    if (inputShapes.size() > 0) {
-        rebuild_if_too_small(shapes.bufferShapes, sizeof(Shape) * inputShapes.size());
-        queue.enqueue_write_buffer(shapes.bufferShapes, 0, sizeof(Shape) * inputShapes.size(), inputShapes.data());
+void Tracer::update_scene(const std::vector<Shape> &input_shapes) {
+    if (input_shapes.size() > 0) {
+        rebuild_if_too_small(shapes.buffer_shapes, sizeof(Shape) * input_shapes.size());
+        queue.enqueue_write_buffer(shapes.buffer_shapes, 0, sizeof(Shape) * input_shapes.size(), input_shapes.data());
     }
 
     // Generate triangles
@@ -55,28 +55,26 @@ void Tracer::update_scene(const std::vector<Shape> &inputShapes, const glm::vec3
     // {
     // }
 
-    kernel.set_arg(3, shapes.bufferShapes); // Point to new buffer
+    kernel.set_arg(3, shapes.buffer_shapes); // Point to new buffer
 
-    sceneData.numShapes = inputShapes.size();
-
-    sceneData.lightSource = VEC3TOCL(lightSource);
-    kernel.set_arg(1, sizeof(SceneData), &sceneData);
+    scene_data.num_shapes = input_shapes.size();
+    kernel.set_arg(1, sizeof(SceneData), &scene_data);
 }
 
 void Tracer::clear_canvas() {
     float pattern = 0.f;
-    queue.enqueue_fill_buffer(renderCanvas, &pattern, sizeof(float), 0, renderCanvas.size());
+    queue.enqueue_fill_buffer(render_canvas, &pattern, sizeof(float), 0, render_canvas.size());
 }
 
-void Tracer::render(cl_uint ticks_stopped, RenderData &renderData, std::vector<uint8_t> &output) {
+void Tracer::render(cl_uint ticks_stopped, RenderData &render_data, std::vector<uint8_t> &output) {
     // Raytrace to canvas
-    kernel.set_arg(0, sizeof(RenderData), &renderData);
-    queue.enqueue_1d_range_kernel(kernel, 0, renderData.width * renderData.height, 0);
+    kernel.set_arg(0, sizeof(RenderData), &render_data);
+    queue.enqueue_1d_range_kernel(kernel, 0, render_data.width * render_data.height, 0);
 
     // Average with the last samples
     average_kernel.set_arg(0, sizeof(cl_uint), &ticks_stopped);
-    queue.enqueue_1d_range_kernel(average_kernel, 0, renderData.width * renderData.height, 0);
+    queue.enqueue_1d_range_kernel(average_kernel, 0, render_data.width * render_data.height, 0);
 
     // Transfer result from gpu buffer to array
-    queue.enqueue_read_buffer(renderOutput, 0, sizeof(cl_uchar4) * renderData.width * renderData.height, output.data());
+    queue.enqueue_read_buffer(render_output, 0, sizeof(cl_uchar4) * render_data.width * render_data.height, output.data());
 }

@@ -184,28 +184,23 @@ int main(int argc, char **) {
 
     std::vector<Shape> shapes;
 
-    Box box = {Box(Material(color::from_RGB(0x4f, 0x12, 0x13), 1.0f), {10, 20, -110}, {20, 12, 20})};
+    Box box = {Box(Material(color::from_RGB(0x4f, 0x12, 0x13), 0.9f), {10, 20, -90.0f}, {20, 12, 20})};
     auto box_t = box.to_triangles();
     std::transform(box_t.begin(), box_t.end(), std::back_inserter(shapes), [](Triangle &t) { return Shape(t); });
 
-    Plane groundPlane = Plane(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f), {0, 0, 0}, {0, 1, 0});
-    shapes.push_back(groundPlane);
+    Plane ground_plane = Plane(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f), {0, 0, 0}, {0, 1, 0});
+    shapes.push_back(ground_plane);
 
-    for (size_t i = 0; i < 30; i++) {
-        auto sphere =
-            Sphere(Material(color::from_RGB(rand() % 256, rand() % 256, rand() % 256), (rand() % 1000) / 1000.f),
-                   {rand() % 300, rand() % 20 + 15, rand() % 300}, (rand() % 1000) / 100.f + 5.f);
-
-        if (rand() % 3 == 0) {
-            sphere.material.smoothness = 1.0;
-        }
+    for (size_t i = 0; i < 12; i++) {
+        auto sphere = Sphere(Material(color::from_RGB(rand() % 256, rand() % 256, rand() % 256), (float)i / 11.0f),
+                             {i * 18.0f, 20.0f, -50.0f}, 8.0f);
 
         shapes.push_back(std::move(sphere));
     }
 
     Camera camera = {{0, 10, 0}, {glm::pi<float>(), -0.6f, glm::pi<float>()}};
 
-    float aspectRatio = static_cast<float>(RENDER_WIDTH) / RENDER_HEIGHT;
+    float aspect_ratio = static_cast<float>(RENDER_WIDTH) / RENDER_HEIGHT;
 
     float fov = glm::pi<float>() / 2.f; // 90 degrees
     float fov_scale = glm::tan(fov / 2.f);
@@ -213,8 +208,14 @@ int main(int argc, char **) {
     glm::mat4 camera_to_world;
 
     Tracer tracer(RENDER_WIDTH, RENDER_HEIGHT);
-
     Tracer::RenderData options(RENDER_WIDTH, RENDER_HEIGHT);
+
+	tracer.scene_data.horizon_color = VEC3TOCL(color::from_hex(0x91c8f2));
+	tracer.scene_data.zenith_color = VEC3TOCL(color::from_hex(0x40aff9));
+	tracer.scene_data.ground_color = VEC3TOCL(color::from_hex(0x777777));
+	tracer.scene_data.sun_focus = 25.0f;
+	tracer.scene_data.sun_color = VEC3TOCL(color::from_hex(0xddff00) * 3.0f);
+	tracer.scene_data.sun_direction = VEC3TOCL(glm::normalize(glm::vec3(1.0, -1.0, 0.0)));
 
     std::vector<uint8_t> pixels(RENDER_WIDTH * RENDER_HEIGHT * 4);
 
@@ -251,15 +252,15 @@ int main(int argc, char **) {
 
         if (time_not_moved == 1) {
             tracer.clear_canvas();
-            options.numSamples = 3;
+            options.num_samples = 3;
         } else {
-            options.numSamples = 6;
+            options.num_samples = 6;
         }
 
-        tracer.update_scene(shapes, glm::vec3(0.0, 1.0, 0.0));
+        tracer.update_scene(shapes);
 
-        options.aspectRatio = aspectRatio;
-        options.fieldOfViewScale = fov_scale;
+        options.aspect_ratio = aspect_ratio;
+        options.fov_scale = fov_scale;
         options.set_matrix(camera_to_world);
         options.time = start * 1000;
         options.tick = tick;

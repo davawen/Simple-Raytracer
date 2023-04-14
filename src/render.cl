@@ -60,10 +60,10 @@ typedef struct {
 
 struct RenderData {
     int width, height;
-    int numSamples;
-    float aspectRatio, fieldOfViewScale;
+    int num_samples;
+    float aspect_ratio, fov_scale;
 
-    float4 cameraToWorldMatrix[4];
+    float4 camera_to_world[4];
 
     uint time;
     uint tick;
@@ -71,19 +71,24 @@ struct RenderData {
 typedef struct RenderData RenderData;
 
 struct SceneData {
-    int numShapes;
-    float3 lightSource;
+    int num_shapes;
+
+    float3 horizon_color;
+    float3 zenith_color;
+    float3 ground_color;
+    float sun_focus;
+    float3 sun_color;
+    float3 sun_direction;
 };
 typedef struct SceneData SceneData;
 
 struct Scene {
     const SceneData *data;
-
     __global const Shape *shapes;
 };
 typedef struct Scene Scene;
 
-float4 matrixByVector(const float4 m[4], const float4 v) {
+float4 matrix_by_vector(const float4 m[4], const float4 v) {
     return (float4)(m[0].x * v.x + m[1].x * v.y + m[2].x * v.z + m[3].x * v.w,
                     m[0].y * v.x + m[1].y * v.y + m[2].y * v.z + m[3].y * v.w,
                     m[0].z * v.x + m[1].z * v.y + m[2].z * v.z + m[3].z * v.w,
@@ -197,7 +202,7 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
     __global const Material *closest = NULL;
     float tmin = FLT_MAX;
 
-    for (int i = 0; i < scene->data->numShapes; i++) {
+    for (int i = 0; i < scene->data->num_shapes; i++) {
         __global const Shape *shape = &scene->shapes[i];
         if (shape->type == SHAPE_SPHERE) {
             __global const Sphere *sphere = &shape->shape.sphere;
@@ -263,11 +268,22 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
     return closest;
 }
 
-float3 sky_box(const Scene *scene) {
-    return (float3)(0.5, 0.5, 0.5);
+float3 sky_box(Ray ray, const Scene *scene) {
+    // const float3 horizon = (float3)(0.251, 0.686, 0.98);
+    // const float3 sky_top = (float3)(0.569, 0.784, 0.949);
+
+    float sky_gradient_t = pow(smoothstep(0.0f, 0.4f, ray.direction.y), 0.35f);
+    float3 sky_gradient = mix(scene->data->horizon_color, scene->data->zenith_color, sky_gradient_t);
+    float3 sun = pow(max(dot(ray.direction, -scene->data->sun_direction), 0.0f), scene->data->sun_focus) *
+                 scene->data->sun_color;
+
+    float ground_to_sky = smoothstep(-0.01f, 0.0f, ray.direction.y); // 0 -> 1 step function
+    float sun_mask = ground_to_sky >= 1;
+
+    return mix(scene->data->ground_color, sky_gradient, ground_to_sky) + sun * sun_mask;
 }
 
-float3 trace(const struct Scene *scene, struct Ray *camray, uint seed) {
+float3 trace(const Scene *scene, Ray *camray, uint seed) {
     float3 color = (float3)(0.f);
     float3 mask = (float3)(1.f);
 
@@ -284,31 +300,15 @@ float3 trace(const struct Scene *scene, struct Ray *camray, uint seed) {
             if (i == MAX_BOUNCE)
                 break; // Don't compute new bounce if it's the last one
 
-            float3 lightsource_dir = normalize(scene->data->lightSource - rayhit.position);
             float3 reflected_dir = reflect(ray.direction, rayhit.normal);
             float3 random_dir = random_direction_hemisphere(rayhit.normal, &seed);
 
             ray.origin = rayhit.position;
-            ray.direction = mix(random_dir, reflected_dir, material->smoothness);
+            ray.direction = normalize(mix(random_dir, reflected_dir, material->smoothness));
 
-            mask *= dot(mix(ray.direction, rayhit.normal, material->smoothness), rayhit.normal);
-        } else // No collision -- Sky
-        {
-
-            // const float3 sun_color = (float3)(1.0, 0.8, 0.0) * 1000.0f;
-            // const float3 sky_color = (float3)(.3f, .65f, 1.f);
-            //
-            // float sun_dir = dot(normalize(scene->data->lightSource - ray.origin), ray.direction);
-            //
-            // float3 sun_point = mix(sky_color, sun_color, sun_dir-.95f);
-            // mask *= sun_point;
-
-            // if( < 0.95f) // If not in the sun
-            //	mask *= ; // Sky color
-            // else
-
-            mask *= sky_box(scene);
-
+            mask *= dot(normalize(mix(ray.direction, rayhit.normal, material->smoothness)), rayhit.normal);
+        } else { // No collision -- Sky
+            mask *= sky_box(ray, scene);
             color += mask;
             break;
         }
@@ -332,17 +332,17 @@ __kernel void render(const struct RenderData data, const struct SceneData sceneD
     const uint id = get_global_id(0);
 
     Scene scene = {.data = &sceneData, .shapes = shapes};
-    float2 windowPos = (float2)(id % data.width, id / data.width); // Raster space coordinates
+    float2 windowPos = (float2)(id % data.width, (uint)(id / data.width)); // Raster space coordinates
 
     float3 color = (float3)(0.f);
-    for (int sample = 0; sample < data.numSamples; sample++) {
-        uint seed = (sample + id * data.numSamples) * data.time * 5304;
+    for (int sample = 0; sample < data.num_samples; sample++) {
+        uint seed = (sample + id * data.num_samples) * data.time * 5304;
 
         float2 ndcPos = (float2)((windowPos.x + random_float(&seed)) / data.width,
                                  (windowPos.y + random_float(&seed)) / data.height); // Normalized coordinates
         float2 screenPos =
-            (float2)((2.f * ndcPos.x - 1.f) * data.aspectRatio * data.fieldOfViewScale,
-                     (1.f - 2.f * ndcPos.y) * data.fieldOfViewScale); // Screen space coordinates (invert y axis)
+            (float2)((2.f * ndcPos.x - 1.f) * data.aspect_ratio * data.fov_scale,
+                     (1.f - 2.f * ndcPos.y) * data.fov_scale); // Screen space coordinates (invert y axis)
         float3 cameraPos = (float3)(screenPos.x, screenPos.y, 1);
 
         Ray ray;
@@ -351,15 +351,15 @@ __kernel void render(const struct RenderData data, const struct SceneData sceneD
         // 0 0 1 z
         // 0 0 0 1
         // Get translation part
-        ray.origin = data.cameraToWorldMatrix[3].xyz;
+        ray.origin = data.camera_to_world[3].xyz;
 
         // vec4 with 0 at the end is only affected by rotation, not translation
         // Only normalize 3d components
-        ray.direction = normalize(matrixByVector(data.cameraToWorldMatrix, (float4)(cameraPos.xyz, 0)).xyz);
+        ray.direction = normalize(matrix_by_vector(data.camera_to_world, (float4)(cameraPos.xyz, 0)).xyz);
 
         color += trace(&scene, &ray, seed /* + (data.time<<3)*/);
     }
-    color /= data.numSamples;
+    color /= data.num_samples;
 
     output[id] += color;
 }
