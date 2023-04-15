@@ -36,216 +36,230 @@
 #define FPS 30
 
 struct Camera {
-    glm::vec3 position;
-    glm::vec3 rotation;
+	glm::vec3 position;
+	glm::vec3 rotation;
 };
 
 glm::mat4 view_matrix(const Camera &camera) {
-    glm::mat4 view = glm::translate(glm::mat4(1.f), camera.position);
-    view *= glm::eulerAngleYZX(camera.rotation.y, camera.rotation.z, camera.rotation.x);
+	glm::mat4 view = glm::translate(glm::mat4(1.f), camera.position);
+	view *= glm::eulerAngleYZX(camera.rotation.y, camera.rotation.z, camera.rotation.x);
 
-    return view;
+	return view;
 }
 
 void save_ppm(std::vector<uint8_t> &pixels) {
-    std::ofstream file;
-    file.open("out.ppm", std::ios::binary | std::ios::out);
-    std::string header = "P6 ";
-    header += std::to_string(WINDOW_WIDTH) + ' ' + std::to_string(WINDOW_HEIGHT) + ' ';
-    header += "255\n";
-    file.write(header.c_str(), header.size());
+	std::ofstream file;
+	file.open("out.ppm", std::ios::binary | std::ios::out);
+	std::string header = "P6 ";
+	header += std::to_string(WINDOW_WIDTH) + ' ' + std::to_string(WINDOW_HEIGHT) + ' ';
+	header += "255\n";
+	file.write(header.c_str(), header.size());
 
-    for (size_t i = 0; i < pixels.size(); i += 4) {
-        uint8_t *p = &pixels[i]; // ARGB
+	for (size_t i = 0; i < pixels.size(); i += 4) {
+		uint8_t *p = &pixels[i]; // ARGB
 
-        file.write((char *)p + 1, 3);
-    }
+		file.write((char *)p + 1, 3);
+	}
 }
 
 double now() {
-    return std::chrono::high_resolution_clock::now().time_since_epoch().count() / 1'000'000'000.0;
+	return std::chrono::high_resolution_clock::now().time_since_epoch().count() / 1'000'000'000.0;
 }
 
 int main(int argc, char **) {
-    if (argc != 1) {
-        printf("Usage: tracer");
-        return -1;
-    }
+	if (argc != 1) {
+		printf("Usage: tracer");
+		return -1;
+	}
 
-    SDL_Renderer *renderer;
-    SDL_Window *window;
+	SDL_Renderer *renderer;
+	SDL_Window *window;
 
-    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
+	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER);
 
-    SDL_CreateWindowAndRenderer(WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE, &window, &renderer);
+	SDL_CreateWindowAndRenderer(
+		WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE, &window, &renderer
+	);
 
-    SDL_RendererInfo info;
-    SDL_GetRendererInfo(renderer, &info);
+	SDL_RendererInfo info;
+	SDL_GetRendererInfo(renderer, &info);
 
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-    SDL_RenderClear(renderer);
+	SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+	SDL_RenderClear(renderer);
 
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGui::StyleColorsDark();
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGui::StyleColorsDark();
 
-    ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
-    ImGui_ImplSDLRenderer_Init(renderer);
+	ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
+	ImGui_ImplSDLRenderer_Init(renderer);
 
-    SDL_Texture *texture =
-        SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, RENDER_WIDTH, RENDER_HEIGHT);
+	SDL_Texture *texture =
+		SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, RENDER_WIDTH, RENDER_HEIGHT);
 
-    std::vector<Shape> shapes;
+	std::vector<Shape> shapes;
 	std::vector<Triangle> triangles;
 
 	Box::create_triangle(triangles);
 
-    Model model = Box::model(Material(color::from_RGB(0x4f, 0x12, 0x13), 0.9f), {10, 20, -90.0f}, {40, 40, 40});
-	shapes.push_back(std::move(model));
+	for (size_t i = 0; i < 25; i++) {
+		Model box =
+			Box::model(Material(color::from_hex(0x4f1213)), {(i % 5) * 20, 10, (int)(i / 5) * -20.0f}, {15, 15, 15});
+		shapes.push_back(box);
+	}
 
-    Plane ground_plane = Plane(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f), {0, 0, 0}, {0, 1, 0});
-    shapes.push_back(ground_plane);
+	Plane ground_plane = Plane(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f), {0, 0, 0}, {0, 1, 0});
+	shapes.push_back(ground_plane);
 
-    for (size_t i = 0; i < 12; i++) {
-        auto sphere = Sphere(Material(color::from_RGB(rand() % 256, rand() % 256, rand() % 256), (float)i / 11.0f),
-                             {i * 18.0f, 20.0f, -50.0f}, 8.0f);
+	// for (size_t i = 0; i < 12; i++) {
+	//     auto sphere = Sphere(Material(color::from_RGB(rand() % 256, rand() % 256, rand() % 256), (float)i / 11.0f),
+	//                          {i * 18.0f, 20.0f, -50.0f}, 8.0f);
+	//
+	//     shapes.push_back(std::move(sphere));
+	// }
 
-        shapes.push_back(std::move(sphere));
-    }
+	Camera camera = {{40, 50, 20}, {3.8f, 0.0f, glm::pi<float>()}};
 
-    Camera camera = {{0, 10, 0}, {glm::pi<float>(), -0.6f, glm::pi<float>()}};
+	float aspect_ratio = static_cast<float>(RENDER_WIDTH) / RENDER_HEIGHT;
 
-    float aspect_ratio = static_cast<float>(RENDER_WIDTH) / RENDER_HEIGHT;
+	float fov = glm::pi<float>() / 2.f; // 90 degrees
+	float fov_scale = glm::tan(fov / 2.f);
 
-    float fov = glm::pi<float>() / 2.f; // 90 degrees
-    float fov_scale = glm::tan(fov / 2.f);
+	glm::mat4 camera_to_world;
 
-    glm::mat4 camera_to_world;
+	Tracer tracer(RENDER_WIDTH, RENDER_HEIGHT);
+	Tracer::RenderData options(RENDER_WIDTH, RENDER_HEIGHT);
 
-    Tracer tracer(RENDER_WIDTH, RENDER_HEIGHT);
-    Tracer::RenderData options(RENDER_WIDTH, RENDER_HEIGHT);
+	options.num_samples = 2;
+	options.num_bounces = 10;
 
-    tracer.scene_data.horizon_color = color::from_hex(0x91c8f2);
-    tracer.scene_data.zenith_color = color::from_hex(0x40aff9);
-    tracer.scene_data.ground_color = color::from_hex(0x777777);
-    tracer.scene_data.sun_focus = 25.0f;
-    tracer.scene_data.sun_color = color::from_hex(0xddffcc);
+	tracer.scene_data.horizon_color = color::from_hex(0x91c8f2);
+	tracer.scene_data.zenith_color = color::from_hex(0x40aff9);
+	tracer.scene_data.ground_color = color::from_hex(0x777777);
+	tracer.scene_data.sun_focus = 25.0f;
+	tracer.scene_data.sun_color = color::from_hex(0xddffcc);
 	tracer.scene_data.sun_intensity = 1.0f;
-    tracer.scene_data.sun_direction = VEC3TOCL(glm::normalize(glm::vec3(1.0, -1.0, 0.0)));
+	tracer.scene_data.sun_direction = VEC3TOCL(glm::normalize(glm::vec3(1.0, -1.0, 0.0)));
 
-    std::vector<uint8_t> pixels(RENDER_WIDTH * RENDER_HEIGHT * 4);
+	std::vector<uint8_t> pixels(RENDER_WIDTH * RENDER_HEIGHT * 4);
 
 	// SDL state
-    bool running = true;
+	bool running = true;
 
-    bool cursor_moving = false;
-    SDL_SetRelativeMouseMode(SDL_FALSE);
+	bool cursor_moving = false;
+	SDL_SetRelativeMouseMode(SDL_FALSE);
 
-    std::unordered_map<int, bool> pressed_keys;
+	std::unordered_map<int, bool> pressed_keys;
 
 	// Other state
-
-    int tick = 0;
-    cl_uint time_not_moved = 1;
-    double average = 0.;
+	int tick = 0;
+	cl_uint time_not_moved = 1;
+	double average = 0.;
 
 	bool render_raytracing = true;
 	bool demo_window = false;
 
-    SDL_Event event;
-    while (running) {
-        double start = now();
+	int num_frame_samples = 30;
+	std::deque<float> frame_times;
+	frame_times.resize(num_frame_samples);
 
-        while (SDL_PollEvent(&event) != 0) {
-            ImGui_ImplSDL2_ProcessEvent(&event);
+	SDL_Event event;
+	while (running) {
+		double start = now();
 
-            switch (event.type) {
-            case SDL_KEYDOWN:
-                pressed_keys[event.key.keysym.sym] = true;
-                if (event.key.keysym.sym == SDLK_v) {
-                    cursor_moving = !cursor_moving;
-                    SDL_SetRelativeMouseMode(cursor_moving ? SDL_TRUE : SDL_FALSE);
-                }
-                break;
-            case SDL_KEYUP:
-                pressed_keys[event.key.keysym.sym] = false;
-                break;
-            case SDL_QUIT:
-                running = false;
-                break;
-            case SDL_MOUSEWHEEL:
-                if (!cursor_moving)
-                    break;
+		while (SDL_PollEvent(&event) != 0) {
+			ImGui_ImplSDL2_ProcessEvent(&event);
 
-                if (event.wheel.y > 0) {
-                    fov += glm::pi<float>() / 180.f; // 1 degree
-                } else if (event.wheel.y < 0) {
-                    fov -= glm::pi<float>() / 180.f; // 1 degree
-                }
+			switch (event.type) {
+			case SDL_KEYDOWN:
+				pressed_keys[event.key.keysym.sym] = true;
+				if (event.key.keysym.sym == SDLK_v) {
+					cursor_moving = !cursor_moving;
+					SDL_SetRelativeMouseMode(cursor_moving ? SDL_TRUE : SDL_FALSE);
+				}
+				break;
+			case SDL_KEYUP:
+				pressed_keys[event.key.keysym.sym] = false;
+				break;
+			case SDL_QUIT:
+				running = false;
+				break;
+			case SDL_MOUSEWHEEL:
+				if (!cursor_moving)
+					break;
 
-                fov_scale = glm::tan(fov / 2.f);
-                time_not_moved = 1;
-                break;
-            case SDL_MOUSEMOTION:
-                if (!cursor_moving)
-                    break;
+				if (event.wheel.y > 0) {
+					fov += glm::pi<float>() / 180.f; // 1 degree
+				} else if (event.wheel.y < 0) {
+					fov -= glm::pi<float>() / 180.f; // 1 degree
+				}
 
-                if (event.motion.xrel != 0) {
-                    camera.rotation.y += glm::pi<float>() * event.motion.xrel / 1000.f * fov_scale;
-                }
+				fov_scale = glm::tan(fov / 2.f);
+				time_not_moved = 1;
+				break;
+			case SDL_MOUSEMOTION:
+				if (!cursor_moving)
+					break;
 
-                if (event.motion.yrel != 0) {
-                    camera.rotation.x += glm::pi<float>() * event.motion.yrel / 1000.f * fov_scale;
-                }
-                time_not_moved = 1;
-                break;
-            default:
-                break;
-            }
-        }
+				if (event.motion.xrel != 0) {
+					camera.rotation.y += glm::pi<float>() * event.motion.xrel / 1000.f * fov_scale;
+				}
 
-        // Handle imgui
-        ImGui_ImplSDLRenderer_NewFrame();
-        ImGui_ImplSDL2_NewFrame();
-        ImGui::NewFrame();
+				if (event.motion.yrel != 0) {
+					camera.rotation.x += glm::pi<float>() * event.motion.yrel / 1000.f * fov_scale;
+				}
+				time_not_moved = 1;
+				break;
+			default:
+				break;
+			}
+		}
 
-        ImGui::Begin("Parameters");
+		// Handle imgui
+		ImGui_ImplSDLRenderer_NewFrame();
+		ImGui_ImplSDL2_NewFrame();
+		ImGui::NewFrame();
+
+		ImGui::Begin("Parameters");
 
 		bool rerender = false;
 
 		if (ImGui::TreeNode("Shapes")) {
-			for(size_t i = 0; i < shapes.size(); i++) {
+			for (size_t i = 0; i < shapes.size(); i++) {
 				auto &shape = shapes[i];
 				ImGui::PushID(i);
 
 				auto show_material = [](Material &material) {
-					return ImGui::ColorEdit3("Color", &material.color.x)
-						|| ImGui::ColorEdit3("Emission", &material.emission.x)
-						|| ImGui::SliderFloat("Emission Strength", &material.emission_strength, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_Logarithmic)
-						|| ImGui::SliderFloat("Smoothness", &material.smoothness, 0.0f, 1.0f);
+					return ImGui::ColorEdit3("Color", &material.color.x) ||
+					       ImGui::ColorEdit3("Emission", &material.emission.x) ||
+					       ImGui::SliderFloat(
+							   "Emission Strength", &material.emission_strength, 0.0f, 100.0f, "%.3f",
+							   ImGuiSliderFlags_Logarithmic
+						   ) ||
+					       ImGui::SliderFloat("Smoothness", &material.smoothness, 0.0f, 1.0f);
 				};
 
 				if (shape.type == ShapeType::SHAPE_SPHERE) {
 					auto &sphere = shape.shape.sphere;
 					if (ImGui::TreeNode("Sphere")) {
-						rerender |= ImGui::DragFloat3("Position", &sphere.position.x);
-						rerender |= ImGui::DragFloat("Radius", &sphere.radius, 1.0f, 1.0f);
+						rerender |= ImGui::DragFloat3("Position", &sphere.position.x, 0.1f);
+						rerender |= ImGui::DragFloat("Radius", &sphere.radius, 1.0f, 1.0f, 0.1f);
 						rerender |= show_material(sphere.material);
 						ImGui::TreePop();
 					}
 				} else if (shape.type == ShapeType::SHAPE_PLANE) {
 					auto &plane = shape.shape.plane;
-					if (ImGui::TreeNode("Plane")){
-						rerender |= ImGui::DragFloat3("Position", &plane.position.x);
+					if (ImGui::TreeNode("Plane")) {
+						rerender |= ImGui::DragFloat3("Position", &plane.position.x, 0.1f);
 						rerender |= show_material(plane.material);
 						ImGui::TreePop();
 					}
 				} else if (shape.type == ShapeType::SHAPE_MODEL) {
 					auto &model = shape.shape.model;
-					if (ImGui::TreeNode("Model")){
+					if (ImGui::TreeNode("Model")) {
 						ImGui::Text("%d triangles", model.num_triangles);
 						auto old_position = model.position;
-						if (ImGui::DragFloat3("Position", &model.position.x)) {
+						if (ImGui::DragFloat3("Position", &model.position.x, 0.1f)) {
 							// Recompute bounding box
 							auto movement = model.position - old_position;
 							model.bounding_min += movement;
@@ -254,9 +268,9 @@ int main(int argc, char **) {
 							rerender |= true;
 						}
 						auto old_size = model.size;
-						if (ImGui::DragFloat3("Size", &model.size.x)) {
+						if (ImGui::DragFloat3("Size", &model.size.x, 0.1f)) {
 							// Recompute bounding box
-							auto change = model.size/old_size;
+							auto change = model.size / old_size;
 							model.bounding_min *= change;
 							model.bounding_max *= change;
 
@@ -273,6 +287,13 @@ int main(int argc, char **) {
 			ImGui::TreePop();
 		}
 
+		if (ImGui::TreeNode("Camera")) {
+			rerender |= ImGui::DragFloat3("Position", &camera.position.x, 0.1f);
+			rerender |= ImGui::DragFloat3("Orientation", &camera.rotation.x, 0.1f);
+
+			ImGui::TreePop();
+		}
+
 		if (ImGui::TreeNode("Scene Parameters")) {
 			rerender |= ImGui::ColorEdit3("Horizon color", (float *)&tracer.scene_data.horizon_color);
 			rerender |= ImGui::ColorEdit3("Zenith color", (float *)&tracer.scene_data.zenith_color);
@@ -280,7 +301,9 @@ int main(int argc, char **) {
 
 			rerender |= ImGui::SliderFloat("Sun focus", &tracer.scene_data.sun_focus, 0.0f, 100.0f);
 			rerender |= ImGui::ColorEdit3("Sun color", (float *)&tracer.scene_data.sun_color);
-			rerender |= ImGui::SliderFloat("Sun intensity", &tracer.scene_data.sun_intensity, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+			rerender |= ImGui::SliderFloat(
+				"Sun intensity", &tracer.scene_data.sun_intensity, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic
+			);
 			auto &dir = tracer.scene_data.sun_direction;
 			if (ImGui::DragFloat3("Sun direction", (float *)&dir)) {
 				auto glm_dir = glm::normalize(glm::vec3(dir.x, dir.y, dir.z));
@@ -309,31 +332,57 @@ int main(int argc, char **) {
 		if (rerender) {
 			time_not_moved = 1;
 		}
+		ImGui::End();
 
-        ImGui::End();
+		if (ImGui::Begin("Frame times")) {
+			ImGui::PlotLines(
+				"Timings (ms)", [](void *data, int idx) { return ((std::deque<float> *)data)->at(idx); },
+				&frame_times, num_frame_samples
+			);
+			float sum = 0.0f;
+			float min_timing = INFINITY;
+			float max_timing = -INFINITY;
+
+			for (auto x : frame_times) {
+				sum += x;
+				min_timing = glm::min(min_timing, x);
+				max_timing = glm::max(max_timing, x);
+			}
+			sum /= num_frame_samples;
+
+			ImGui::Text("Min: %.3f / Max: %.3f", min_timing * 1000.f, max_timing * 1000.f);
+			ImGui::Text("Average timing: %.3f ms", sum * 1000.0f);
+			ImGui::Text("FPS: %f.1", 1.0f / sum);
+
+			if (ImGui::SliderInt("Number of samples", &num_frame_samples, 1, 120)) {
+				frame_times.resize(num_frame_samples);
+			}
+		}
+
+		ImGui::End();
 
 		// Move camera
-        {
-            float horizontal = pressed_keys[SDLK_d] - pressed_keys[SDLK_a];
-            float transversal = pressed_keys[SDLK_w] - pressed_keys[SDLK_s];
-            float vertical = pressed_keys[SDLK_SPACE] - pressed_keys[SDLK_c];
+		{
+			float horizontal = pressed_keys[SDLK_d] - pressed_keys[SDLK_a];
+			float transversal = pressed_keys[SDLK_w] - pressed_keys[SDLK_s];
+			float vertical = pressed_keys[SDLK_SPACE] - pressed_keys[SDLK_c];
 
-            const glm::vec3 movement =
-                glm::normalize(glm::vec3(camera_to_world * glm::vec4(horizontal, 0, transversal, 0)) +
-                               glm::vec3(0, vertical, 0)); // 0 at the end nullify's translation
+			const glm::vec3 movement = glm::normalize(
+				glm::vec3(camera_to_world * glm::vec4(horizontal, 0, transversal, 0)) + glm::vec3(0, vertical, 0)
+			); // 0 at the end nullify's translation
 
-            if (!glm::all(glm::isnan(movement)) && !glm::isNull(movement, glm::epsilon<float>())) {
-                camera.position += movement;
-                time_not_moved = 1;
-            }
-        }
-        camera_to_world = view_matrix(camera);
+			if (!glm::all(glm::isnan(movement)) && !glm::isNull(movement, glm::epsilon<float>())) {
+				camera.position += movement;
+				time_not_moved = 1;
+			}
+		}
+		camera_to_world = view_matrix(camera);
 
-        // Handle ray tracing
-        if (time_not_moved == 1) {
-            tracer.clear_canvas();
+		// Handle ray tracing
+		if (time_not_moved == 1) {
+			tracer.clear_canvas();
 			tracer.update_scene(shapes, triangles);
-        }
+		}
 
 		if (render_raytracing) {
 			options.aspect_ratio = aspect_ratio;
@@ -349,40 +398,41 @@ int main(int argc, char **) {
 			SDL_RenderCopy(renderer, texture, NULL, NULL);
 		}
 
-        if (pressed_keys[SDLK_p]) {
-            save_ppm(pixels);
+		if (pressed_keys[SDLK_p]) {
+			save_ppm(pixels);
 			pressed_keys[SDLK_p] = false;
-        }
+		}
 
 		// Render imgui output
-        ImGui::Render();
-        ImGui_ImplSDLRenderer_RenderDrawData(ImGui::GetDrawData());
+		ImGui::Render();
+		ImGui_ImplSDLRenderer_RenderDrawData(ImGui::GetDrawData());
 
-        SDL_RenderPresent(renderer);
+		SDL_RenderPresent(renderer);
 
-        average += now() - start;
-        tick++;
-        time_not_moved++;
+		double loop_duration = (now() - start);
+		frame_times.pop_front();
+		frame_times.push_back(loop_duration);
 
-        if (tick == 60) {
-            std::cout << "Average time: " << average * 1000.0 / 60.0 << " ms\n";
-            tick = 0;
-            average = 0.;
-        }
+		average += loop_duration;
+		tick++;
+		time_not_moved++;
 
-        // Limit framerate
-        double loop_duration = (now() - start);
-        if (loop_duration < 1. / FPS)
-            SDL_Delay((1. / FPS - loop_duration) * 1000);
-    }
+		if (tick == 60) {
+			std::cout << "Average time: " << average * 1000.0 / 60.0 << " ms\n";
+			tick = 0;
+			average = 0.;
+		}
+		if (loop_duration < 1. / FPS)
+			SDL_Delay((1. / FPS - loop_duration) * 1000);
+	}
 
-    ImGui_ImplSDLRenderer_Shutdown();
-    ImGui_ImplSDL2_Shutdown();
-    ImGui::DestroyContext();
+	ImGui_ImplSDLRenderer_Shutdown();
+	ImGui_ImplSDL2_Shutdown();
+	ImGui::DestroyContext();
 
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+	SDL_DestroyRenderer(renderer);
+	SDL_DestroyWindow(window);
+	SDL_Quit();
 
-    return EXIT_SUCCESS;
+	return EXIT_SUCCESS;
 }

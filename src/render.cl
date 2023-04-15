@@ -202,9 +202,26 @@ float intersect_triangle(Triangle *triangle, const Ray *ray, float *t) {
     return false;
 }
 
+/// @param inv_dir Reciprocal of every component of ray.dir
+bool intersection_aabb(float3 bounds_min, float3 bounds_max, const Ray *ray, float3 inv_dir) {
+	float tmin = 0.0f;
+	float tmax = INFINITY;
+	for (int d = 0; d < 3; d++) {
+		float t1 = (bounds_min[d] - ray->origin[d]) * inv_dir[d];
+		float t2 = (bounds_max[d] - ray->origin[d]) * inv_dir[d];
+
+		tmin = max(tmin, min(t1, t2));
+		tmax = min(tmax, max(t1, t2));
+	}
+
+	return tmin < tmax;
+}
+
 __global const Material *closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhit) {
     __global const Material *closest = NULL;
     float tmin = FLT_MAX;
+
+	float3 inv_dir = 1.0f / ray->direction;
 
     for (int i = 0; i < scene->data->num_shapes; i++) {
         __global const Shape *shape = &scene->shapes[i];
@@ -225,8 +242,13 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
                 }
             }
         } else if (shape->type == SHAPE_MODEL) {
-			// Test every triangle in the model
 			__global const Model *model = &shape->shape.model;
+			// Test bounding box first
+			if (!intersection_aabb(model->bounding_min, model->bounding_max, ray, inv_dir)) {
+				continue;
+			}
+
+			// Test every triangle in the model
 			for (size_t i = 0; i < model->num_triangles; i++) {
 				Triangle triangle = scene->triangles[model->triangle_index + i];
 				for (size_t j = 0; j <= 2; j++) {
