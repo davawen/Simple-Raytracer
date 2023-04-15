@@ -27,8 +27,8 @@
 #include "shape.hpp"
 #include "tracer.hpp"
 
-#define WINDOW_WIDTH 900
-#define WINDOW_HEIGHT 562
+#define WINDOW_WIDTH 960
+#define WINDOW_HEIGHT 540
 
 #define RENDER_WIDTH (WINDOW_WIDTH)
 #define RENDER_HEIGHT (WINDOW_HEIGHT)
@@ -123,11 +123,12 @@ int main(int argc, char **) {
     Tracer tracer(RENDER_WIDTH, RENDER_HEIGHT);
     Tracer::RenderData options(RENDER_WIDTH, RENDER_HEIGHT);
 
-    tracer.scene_data.horizon_color = VEC3TOCL(color::from_hex(0x91c8f2));
-    tracer.scene_data.zenith_color = VEC3TOCL(color::from_hex(0x40aff9));
-    tracer.scene_data.ground_color = VEC3TOCL(color::from_hex(0x777777));
+    tracer.scene_data.horizon_color = color::from_hex(0x91c8f2);
+    tracer.scene_data.zenith_color = color::from_hex(0x40aff9);
+    tracer.scene_data.ground_color = color::from_hex(0x777777);
     tracer.scene_data.sun_focus = 25.0f;
-    tracer.scene_data.sun_color = VEC3TOCL(color::from_hex(0xddff00) * 3.0f);
+    tracer.scene_data.sun_color = color::from_hex(0xddffcc);
+	tracer.scene_data.sun_intensity = 1.0f;
     tracer.scene_data.sun_direction = VEC3TOCL(glm::normalize(glm::vec3(1.0, -1.0, 0.0)));
 
     std::vector<uint8_t> pixels(RENDER_WIDTH * RENDER_HEIGHT * 4);
@@ -218,13 +219,15 @@ int main(int argc, char **) {
 				auto show_material = [](Material &material) {
 					return ImGui::ColorEdit3("Color", &material.color.x)
 						|| ImGui::ColorEdit3("Emission", &material.emission.x)
-						|| ImGui::DragFloat("Smoothness", &material.smoothness, 0.01f, 0.0f, 1.0f);
+						|| ImGui::SliderFloat("Emission Strength", &material.emission_strength, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_Logarithmic)
+						|| ImGui::SliderFloat("Smoothness", &material.smoothness, 0.0f, 1.0f);
 				};
 
 				if (shape.type == ShapeType::SHAPE_SPHERE) {
 					auto &sphere = shape.shape.sphere;
 					if (ImGui::TreeNode("Sphere")) {
 						rerender |= ImGui::DragFloat3("Position", &sphere.position.x);
+						rerender |= ImGui::DragFloat("Radius", &sphere.radius, 1.0f, 1.0f);
 						rerender |= show_material(sphere.material);
 						ImGui::TreePop();
 					}
@@ -258,6 +261,7 @@ int main(int argc, char **) {
 
 			rerender |= ImGui::SliderFloat("Sun focus", &tracer.scene_data.sun_focus, 0.0f, 100.0f);
 			rerender |= ImGui::ColorEdit3("Sun color", (float *)&tracer.scene_data.sun_color);
+			rerender |= ImGui::SliderFloat("Sun intensity", &tracer.scene_data.sun_intensity, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
 			auto &dir = tracer.scene_data.sun_direction;
 			if (ImGui::DragFloat3("Sun direction", (float *)&dir)) {
 				auto glm_dir = glm::normalize(glm::vec3(dir.x, dir.y, dir.z));
@@ -309,11 +313,10 @@ int main(int argc, char **) {
         // Handle ray tracing
         if (time_not_moved == 1) {
             tracer.clear_canvas();
+			tracer.update_scene(shapes);
         }
 
 		if (render_raytracing) {
-			tracer.update_scene(shapes);
-
 			options.aspect_ratio = aspect_ratio;
 			options.fov_scale = fov_scale;
 			options.set_matrix(camera_to_world);

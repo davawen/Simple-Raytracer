@@ -68,11 +68,13 @@ class Tracer {
     struct SceneData {
         cl_int num_shapes;
 
-		cl_float3 horizon_color;
-		cl_float3 zenith_color;
-		cl_float3 ground_color;
-		cl_float sun_focus;
-		cl_float3 sun_color;
+		alignas(cl_float3) Color horizon_color;
+		alignas(cl_float3) Color zenith_color;
+		alignas(cl_float3) Color ground_color;
+		alignas(cl_float3) cl_float sun_focus;
+		alignas(cl_float3) Color sun_color;
+
+		alignas(cl_float3) cl_float sun_intensity;
         cl_float3 sun_direction;
     } scene_data;
 

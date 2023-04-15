@@ -17,6 +17,7 @@ typedef struct {
     float smoothness;
 
     float3 emission;
+	float emission_strength;
 } Material;
 
 typedef struct {
@@ -69,8 +70,10 @@ typedef struct {
     float3 horizon_color;
     float3 zenith_color;
     float3 ground_color;
+
     float sun_focus;
     float3 sun_color;
+	float sun_intensity;
     float3 sun_direction;
 } SceneData;
 
@@ -265,8 +268,8 @@ float3 sky_box(Ray ray, const Scene *scene) {
 
     float sky_gradient_t = pow(smoothstep(0.0f, 0.4f, ray.direction.y), 0.35f);
     float3 sky_gradient = mix(scene->data->horizon_color, scene->data->zenith_color, sky_gradient_t);
-    float3 sun = pow(max(dot(ray.direction, -scene->data->sun_direction), 0.0f), scene->data->sun_focus) *
-                 scene->data->sun_color;
+    float3 sun = pow(max(dot(ray.direction, -scene->data->sun_direction), 0.0f), scene->data->sun_focus)
+		* scene->data->sun_color * scene->data->sun_intensity;
 
     float ground_to_sky = smoothstep(-0.01f, 0.0f, ray.direction.y); // 0 -> 1 step function
     float sun_mask = ground_to_sky >= 1;
@@ -285,7 +288,7 @@ float3 trace(int num_bounces, const Scene *scene, Ray *camray, uint seed) {
         __global const Material *material = closest_intersection(scene, &ray, &rayhit);
 
         if (material != NULL) {
-            color += mask * material->emission;
+            color += mask * material->emission * material->emission_strength;
 
             if (i == num_bounces - 1)
                 break; // Don't compute new bounce if it's the last one
@@ -323,7 +326,7 @@ __kernel void render(const RenderData data, const SceneData sceneData, __global 
                      __global const Shape *shapes) {
     const uint id = get_global_id(0);
 
-    Scene scene = {.data = &sceneData, .shapes = shapes};
+    Scene scene = { .data = &sceneData, .shapes = shapes };
     float2 windowPos = (float2)(id % data.width, (uint)(id / data.width)); // Raster space coordinates
 
     float3 color = (float3)(0.f);
