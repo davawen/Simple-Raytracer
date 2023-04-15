@@ -20,9 +20,6 @@ struct Sphere {
     alignas(cl_float3) float radius;
 
     Sphere(const Material &material, const glm::vec3 &position, float radius);
-
-    bool intersectRay(const glm::vec3 &rayOrigin, const glm::vec3 &rayDirection, glm::vec3 &intersectionPoint,
-                      glm::vec3 &intersectionNormal) const;
 };
 
 struct Plane {
@@ -32,42 +29,39 @@ struct Plane {
     alignas(cl_float3) glm::vec3 normal;
 
     Plane(const Material &material, const glm::vec3 &position, const glm::vec3 &normal);
-
-    bool intersectRay(const glm::vec3 &rayOrigin, const glm::vec3 &rayDirection, glm::vec3 &intersectionPoint,
-                      glm::vec3 &intersectionNormal) const;
 };
 
 struct Triangle {
-    Material material;
-
     struct Vertex {
         alignas(cl_float3) glm::vec3 p;
     } vertices[3];
 
-    Triangle(const Material &material, const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2);
+    Triangle(const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2);
+};
 
-    bool intersectRay(const glm::vec3 &rayOrigin, const glm::vec3 &rayDirection, glm::vec3 &intersectionPoint,
-                      glm::vec3 &intersectionNormal) const;
+/// Collection of triangles
+struct Model {
+    Material material;
+    cl_uint triangle_index;
+    cl_uint num_triangles;
+    alignas(cl_float3) glm::vec3 bounding_min;
+    alignas(cl_float3) glm::vec3 bounding_max;
+    alignas(cl_float3) glm::vec3 position;
+    alignas(cl_float3) glm::vec3 size;
 };
 
 struct Box {
-    Material material;
-    glm::vec3 position;
+	static int triangle_index;
 
-    alignas(cl_float3) glm::vec3 size;
-
-    Box(const Material &material, const glm::vec3 &position, const glm::vec3 &size);
-
-    bool intersectRay(const glm::vec3 &rayOrigin, const glm::vec3 &rayDirection, glm::vec3 &intersectionPoint,
-                      glm::vec3 &intersectionNormal) const;
-
-    std::vector<Triangle> to_triangles();
+	/// Creates the triangles necessary for a box
+    static void create_triangle(std::vector<Triangle> &triangles);
+    static Model model(const Material &material, const glm::vec3 &position, const glm::vec3 &size);
 };
 
 enum ShapeType {
     SHAPE_SPHERE,
     SHAPE_PLANE,
-    SHAPE_TRIANGLE
+    SHAPE_MODEL
 };
 
 struct Shape {
@@ -75,7 +69,7 @@ struct Shape {
     union U {
         Sphere sphere;
         Plane plane;
-        Triangle triangle;
+        Model model;
 
         U() {
         }
@@ -89,8 +83,8 @@ struct Shape {
         type = SHAPE_PLANE;
         shape.plane = p;
     }
-    Shape(const Triangle &t) {
-        type = SHAPE_TRIANGLE;
-        shape.triangle = t;
+    Shape(const Model &m) {
+        type = SHAPE_MODEL;
+        shape.model = m;
     }
 };

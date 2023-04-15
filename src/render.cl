@@ -33,14 +33,23 @@ typedef struct {
 } Plane;
 
 typedef struct {
-    Material material;
     float3 vertices[3];
 } Triangle;
+
+typedef struct {
+	Material material;
+	uint triangle_index;
+	uint num_triangles;
+	float3 bounding_min;
+	float3 bounding_max;
+	float3 position;
+	float3 size;
+} Model;
 
 typedef enum {
     SHAPE_SPHERE,
     SHAPE_PLANE,
-    SHAPE_TRIANGLE
+    SHAPE_MODEL
 } ShapeType;
 
 typedef struct {
@@ -48,7 +57,7 @@ typedef struct {
     union {
         Sphere sphere;
         Plane plane;
-        Triangle triangle;
+        Model model;
     } shape;
 } Shape;
 
@@ -80,6 +89,7 @@ typedef struct {
 typedef struct {
     const SceneData *data;
     __global const Shape *shapes;
+	__global const Triangle *triangles;
 } Scene;
 
 float4 matrix_by_vector(const float4 m[4], const float4 v) {
@@ -158,7 +168,7 @@ bool intersect_plane(__global const Plane *plane, const Ray *ray, float *t) {
     return true;
 }
 
-float intersect_triangle(__global const Triangle *triangle, const Ray *ray, float *t) {
+float intersect_triangle(Triangle *triangle, const Ray *ray, float *t) {
     float3 edge1, edge2, h, s, q;
     float a, f, u, v;
 
@@ -214,28 +224,35 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
                     }
                 }
             }
-        } else if (shape->type == SHAPE_TRIANGLE) {
-            __global const Triangle *triangle = &shape->shape.triangle;
+        } else if (shape->type == SHAPE_MODEL) {
+			// Test every triangle in the model
+			__global const Model *model = &shape->shape.model;
+			for (size_t i = 0; i < model->num_triangles; i++) {
+				Triangle triangle = scene->triangles[model->triangle_index + i];
+				for (size_t j = 0; j <= 2; j++) {
+					triangle.vertices[j] = triangle.vertices[j]*model->size + model->position;
+				}
 
-            float t_i;
-            if (intersect_triangle(triangle, ray, &t_i)) {
-                if (t_i < tmin) {
-                    tmin = t_i;
-                    closest = &triangle->material;
+				float t_i;
+				if (intersect_triangle(&triangle, ray, &t_i)) {
+					if (t_i < tmin) {
+						tmin = t_i;
+						closest = &model->material;
 
-                    if (rayhit != NULL) {
-                        float3 A = triangle->vertices[1] - triangle->vertices[0];
-                        float3 B = triangle->vertices[2] - triangle->vertices[0];
+						if (rayhit != NULL) {
+							float3 A = triangle.vertices[1] - triangle.vertices[0];
+							float3 B = triangle.vertices[2] - triangle.vertices[0];
 
-                        rayhit->normal =
-                            normalize((float3)(A.y * B.z - A.z * B.y, A.z * B.x - A.x * B.z, A.x * B.y - A.y * B.x));
-                        rayhit->normal = dot(rayhit->normal, ray->direction) < 0.0f
-                                             ? rayhit->normal
-                                             : -rayhit->normal; // Reflect normal to face camera
-                        rayhit->position = ray->origin + ray->direction * tmin + rayhit->normal * .001f;
-                    }
-                }
-            }
+							rayhit->normal =
+								normalize((float3)(A.y * B.z - A.z * B.y, A.z * B.x - A.x * B.z, A.x * B.y - A.y * B.x));
+							rayhit->normal = dot(rayhit->normal, ray->direction) < 0.0f
+												 ? rayhit->normal
+												 : -rayhit->normal; // Reflect normal to face camera
+							rayhit->position = ray->origin + ray->direction * tmin + rayhit->normal * .001f;
+						}
+					}
+				}
+			}
         } else if (shape->type == SHAPE_PLANE) {
             __global const Plane *plane = &shape->shape.plane;
 
@@ -323,10 +340,10 @@ float3 aces(float3 x) {
 }
 
 __kernel void render(const RenderData data, const SceneData sceneData, __global float3 *output,
-                     __global const Shape *shapes) {
+                     __global const Shape *shapes, __global const Triangle *triangles) {
     const uint id = get_global_id(0);
 
-    Scene scene = { .data = &sceneData, .shapes = shapes };
+    Scene scene = { .data = &sceneData, .shapes = shapes, .triangles = triangles };
     float2 windowPos = (float2)(id % data.width, (uint)(id / data.width)); // Raster space coordinates
 
     float3 color = (float3)(0.f);

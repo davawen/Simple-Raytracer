@@ -96,10 +96,12 @@ int main(int argc, char **) {
         SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, RENDER_WIDTH, RENDER_HEIGHT);
 
     std::vector<Shape> shapes;
+	std::vector<Triangle> triangles;
 
-    Box box = Box(Material(color::from_RGB(0x4f, 0x12, 0x13), 0.9f), {10, 20, -90.0f}, {40, 40, 40});
-    auto box_t = box.to_triangles();
-    std::transform(box_t.begin(), box_t.end(), std::back_inserter(shapes), [](Triangle &t) { return Shape(t); });
+	Box::create_triangle(triangles);
+
+    Model model = Box::model(Material(color::from_RGB(0x4f, 0x12, 0x13), 0.9f), {10, 20, -90.0f}, {40, 40, 40});
+	shapes.push_back(std::move(model));
 
     Plane ground_plane = Plane(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f), {0, 0, 0}, {0, 1, 0});
     shapes.push_back(ground_plane);
@@ -238,13 +240,30 @@ int main(int argc, char **) {
 						rerender |= show_material(plane.material);
 						ImGui::TreePop();
 					}
-				} else if (shape.type == ShapeType::SHAPE_TRIANGLE) {
-					auto &triangle = shape.shape.triangle;
-					if (ImGui::TreeNode("Triangle")){
-						rerender |= ImGui::DragFloat3("Vertex 1", &triangle.vertices[0].p.x);
-						rerender |= ImGui::DragFloat3("Vertex 2", &triangle.vertices[1].p.x);
-						rerender |= ImGui::DragFloat3("Vertex 3", &triangle.vertices[2].p.x);
-						rerender |= show_material(triangle.material);
+				} else if (shape.type == ShapeType::SHAPE_MODEL) {
+					auto &model = shape.shape.model;
+					if (ImGui::TreeNode("Model")){
+						ImGui::Text("%d triangles", model.num_triangles);
+						auto old_position = model.position;
+						if (ImGui::DragFloat3("Position", &model.position.x)) {
+							// Recompute bounding box
+							auto movement = model.position - old_position;
+							model.bounding_min += movement;
+							model.bounding_max += movement;
+
+							rerender |= true;
+						}
+						auto old_size = model.size;
+						if (ImGui::DragFloat3("Size", &model.size.x)) {
+							// Recompute bounding box
+							auto change = model.size/old_size;
+							model.bounding_min *= change;
+							model.bounding_max *= change;
+
+							rerender |= true;
+						}
+
+						rerender |= show_material(model.material);
 						ImGui::TreePop();
 					}
 				}
@@ -313,7 +332,7 @@ int main(int argc, char **) {
         // Handle ray tracing
         if (time_not_moved == 1) {
             tracer.clear_canvas();
-			tracer.update_scene(shapes);
+			tracer.update_scene(shapes, triangles);
         }
 
 		if (render_raytracing) {

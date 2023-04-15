@@ -29,31 +29,37 @@ Tracer::Tracer(const int width, const int height) {
     // Create command queue
     queue = compute::command_queue(context, device);
 
-    shapes.buffer_shapes = compute::buffer(context, 0);
+    buffer_shapes = compute::buffer(context, 0);
+    buffer_triangles = compute::buffer(context, 0);
 
     render_canvas = compute::buffer(context, sizeof(cl_float3) * width * height);
     render_output = compute::buffer(context, sizeof(cl_uchar4) * width * height);
 
     // Set arguments
     kernel.set_arg(2, render_canvas);
-    kernel.set_arg(3, shapes.buffer_shapes);
+    kernel.set_arg(3, buffer_shapes);
+    kernel.set_arg(4, buffer_triangles);
 
     average_kernel.set_arg(1, render_canvas);
     average_kernel.set_arg(2, render_output);
 }
 
-void Tracer::update_scene(const std::vector<Shape> &input_shapes) {
-    if (input_shapes.size() > 0) {
-        rebuild_if_too_small(shapes.buffer_shapes, sizeof(Shape) * input_shapes.size());
-        queue.enqueue_write_buffer(shapes.buffer_shapes, 0, sizeof(Shape) * input_shapes.size(), input_shapes.data());
+void Tracer::update_scene(const std::vector<Shape> &shapes, const std::vector<Triangle> &triangles) {
+    if (shapes.size() > 0) {
+        rebuild_if_too_small(buffer_shapes, sizeof(Shape) * shapes.size());
+        queue.enqueue_write_buffer(buffer_shapes, 0, sizeof(Shape) * shapes.size(), shapes.data());
     }
 
-    // Generate triangles
-    // shapes.triangles.clear();
+	if (triangles.size() > 0) {
+        rebuild_if_too_small(buffer_triangles, sizeof(Triangle) * triangles.size());
+        queue.enqueue_write_buffer(buffer_triangles, 0, sizeof(Triangle) * triangles.size(), triangles.data());
+	}
 
-    kernel.set_arg(3, shapes.buffer_shapes); // Point to new buffer
+	// Point to new buffers
+    kernel.set_arg(3, buffer_shapes);
+    kernel.set_arg(4, buffer_triangles);
 
-    scene_data.num_shapes = input_shapes.size();
+    scene_data.num_shapes = shapes.size();
     kernel.set_arg(1, sizeof(SceneData), &scene_data);
 }
 

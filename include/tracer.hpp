@@ -33,11 +33,8 @@ class Tracer {
     compute::buffer render_canvas;
     compute::buffer render_output;
 
-    struct {
-        compute::buffer buffer_shapes;
-
-        std::vector<Triangle> triangles;
-    } shapes;
+	compute::buffer buffer_shapes;
+	compute::buffer buffer_triangles;
 
   public:
     struct RenderData {
@@ -80,7 +77,7 @@ class Tracer {
 
     Tracer(const int width, const int height);
 
-    void update_scene(const std::vector<Shape> &inputShape);
+    void update_scene(const std::vector<Shape> &shapes, const std::vector<Triangle> &triangles);
 
     void clear_canvas();
     void render(cl_uint ticks_stopped, RenderData &renderData, std::vector<uint8_t> &output);

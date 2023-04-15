@@ -6,62 +6,46 @@ Sphere::Sphere(const Material &material, const glm::vec3 &position, float radius
     this->radius = radius;
 }
 
-bool Sphere::intersectRay(const glm::vec3 &rayOrigin, const glm::vec3 &rayDirection, glm::vec3 &intersectionPoint,
-                          glm::vec3 &intersectionNormal) const {
-    if (glm::intersectRaySphere(rayOrigin, rayDirection, this->position, this->radius, intersectionPoint,
-                                intersectionNormal)) {
-        intersectionPoint += intersectionNormal * .001f; // intersection point shouldn't self collision
-
-        return true;
-    }
-
-    return false;
-}
-
 Plane::Plane(const Material &material, const glm::vec3 &position, const glm::vec3 &normal) {
     this->material = material;
     this->position = position;
     this->normal = normal;
 }
 
-bool Plane::intersectRay(const glm::vec3 &rayOrigin, const glm::vec3 &rayDirection, glm::vec3 &intersectionPoint,
-                         glm::vec3 &intersectionNormal) const {
-    float distance;
+Triangle::Triangle(const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2) {
+    this->vertices[0].p = v0;
+    this->vertices[1].p = v1;
+    this->vertices[2].p = v2;
+}
 
-    if (glm::intersectRayPlane(rayOrigin, rayDirection, this->position, this->normal, distance)) {
-        intersectionPoint =
-            rayOrigin + rayDirection * distance + normal * .001f; // intersection point shouldn't self collision
-        intersectionNormal = normal;
+int Box::triangle_index = -1;
 
-        return true;
+Model Box::model(const Material &material, const glm::vec3 &position, const glm::vec3 &size) {
+    if (Box::triangle_index == -1) {
+        throw std::runtime_error("uninitialized box model, you forgot to call Box::create_triangle");
     }
 
-    return false;
+    Model model;
+    model.material = material;
+    model.triangle_index = Box::triangle_index;
+    model.num_triangles = 12;
+	model.bounding_min = position - size*0.5f;
+	model.bounding_max = position + size*0.5f;
+	model.position = position;
+	model.size = size;
+
+	return model;
 }
 
-Box::Box(const Material &material, const glm::vec3 &position, const glm::vec3 &size) {
-    this->material = material;
-
-    this->position = position;
-    this->size = size;
-}
-
-bool Box::intersectRay(const glm::vec3 &, const glm::vec3 &, glm::vec3 &, glm::vec3 &) const {
-    return false;
-}
-
-std::vector<Triangle> Box::to_triangles() {
-    //
+void Box::create_triangle(std::vector<Triangle> &triangles) {
     // 6---7 5
     // |\   \↓
     // 4 2---3
     // \ |   |
     //  \0---1
-    //
-    //
 
-    const glm::vec3 minCorner = position - size / 2.f;
-    const glm::vec3 maxCorner = position + size / 2.f;
+    const glm::vec3 minCorner = -glm::vec3(0.5f);
+    const glm::vec3 maxCorner = glm::vec3(0.5f);
 
     const glm::vec3 vertices[8] = {{minCorner},
                                    {maxCorner.x, minCorner.yz()},
@@ -72,33 +56,11 @@ std::vector<Triangle> Box::to_triangles() {
                                    {minCorner.x, maxCorner.y, maxCorner.z},
                                    {maxCorner}};
 
-    // for(auto &vertice : vertices)
-    // {
-    // 	vertice = glm::rotateZ(vertice, 1.f);
-    // 	vertice += box.position;
-    // }
-
     const int table[12][3] = {{0, 1, 3}, {0, 2, 3}, {0, 4, 6}, {0, 2, 6}, {0, 4, 5}, {0, 1, 5},
-
                               {4, 5, 7}, {4, 6, 7}, {1, 5, 7}, {1, 3, 7}, {2, 6, 7}, {2, 3, 7}};
 
-    std::vector<Triangle> out;
-    out.reserve(12);
+	Box::triangle_index = triangles.size();
     for (size_t i = 0; i < 12; i++) {
-        out.push_back(Triangle(material, vertices[table[i][0]], vertices[table[i][1]], vertices[table[i][2]]));
+        triangles.push_back(Triangle(vertices[table[i][0]], vertices[table[i][1]], vertices[table[i][2]]));
     }
-
-    return out;
-}
-
-Triangle::Triangle(const Material &material, const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2) {
-    this->material = material;
-
-    this->vertices[0].p = v0;
-    this->vertices[1].p = v1;
-    this->vertices[2].p = v2;
-}
-
-bool Triangle::intersectRay(const glm::vec3 &, const glm::vec3 &, glm::vec3 &, glm::vec3 &) const {
-    return false;
 }
