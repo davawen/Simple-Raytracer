@@ -36,6 +36,7 @@ struct Triangle {
         alignas(cl_float3) glm::vec3 p;
     } vertices[3];
 
+	Triangle();
     Triangle(const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2);
 };
 
@@ -48,6 +49,15 @@ struct Model {
     alignas(cl_float3) glm::vec3 bounding_max;
     alignas(cl_float3) glm::vec3 position;
     alignas(cl_float3) glm::vec3 size;
+
+	Model();
+	Model(const std::vector<Triangle> &triangles, Material material, cl_uint triangle_index, cl_uint num_triangles);
+
+	/// Change position and recalculate bounding box
+	void move(glm::vec3 position);
+
+	/// Change size and recalculate bounding box
+	void scale(glm::vec3 size);
 };
 
 struct Box {

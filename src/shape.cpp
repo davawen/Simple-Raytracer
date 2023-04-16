@@ -12,10 +12,52 @@ Plane::Plane(const Material &material, const glm::vec3 &position, const glm::vec
     this->normal = normal;
 }
 
+Triangle::Triangle() {
+	this->vertices[0].p = glm::vec3(0.0f);
+	this->vertices[1].p = glm::vec3(0.0f);
+	this->vertices[2].p = glm::vec3(0.0f);
+}
+
 Triangle::Triangle(const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2) {
     this->vertices[0].p = v0;
     this->vertices[1].p = v1;
     this->vertices[2].p = v2;
+}
+
+Model::Model() {}
+Model::Model(const std::vector<Triangle> &triangles, Material material, cl_uint triangle_index, cl_uint num_triangles) {
+	this->material = material;
+	this->triangle_index = triangle_index;
+	this->num_triangles = num_triangles;
+
+	this->bounding_min = glm::vec3(INFINITY);
+	this->bounding_max = glm::vec3(-INFINITY);
+
+	for (uint i = 0; i < num_triangles; i++) {
+		auto &triangle = triangles[triangle_index + i];
+
+		for (uint j = 0; j < 3; j++) {
+			this->bounding_min = glm::min(this->bounding_min, triangle.vertices[0].p);
+			this->bounding_max = glm::max(this->bounding_max, triangle.vertices[0].p);
+		}
+	}
+
+	this->position = glm::vec3(0.0f);
+	this->size = glm::vec3(1.0f);
+}
+
+void Model::move(glm::vec3 position) {
+	auto movement = position - this->position;
+	this->bounding_min += movement;
+	this->bounding_max += movement;
+	this->position = position;
+}
+
+void Model::scale(glm::vec3 size) {
+	auto change = size / this->size;
+	this->bounding_min = (this->bounding_min - this->position) * change + this->position;
+	this->bounding_max = (this->bounding_max - this->position) * change + this->position;
+	this->size = size;
 }
 
 int Box::triangle_index = -1;
