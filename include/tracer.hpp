@@ -55,7 +55,7 @@ class Tracer {
 			this->num_samples = 4;
 			this->num_bounces = 10;
         }
-    };
+    } options;
 
     struct SceneData {
         cl_int num_shapes;
@@ -75,5 +75,5 @@ class Tracer {
     void update_scene(const std::vector<Shape> &shapes, const std::vector<Triangle> &triangles);
 
     void clear_canvas();
-    void render(cl_uint ticks_stopped, RenderData &renderData, std::vector<uint8_t> &output);
+    void render(cl_uint ticks_stopped, std::vector<uint8_t> &output);
 };

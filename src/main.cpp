@@ -1,10 +1,11 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
-#include <glm/gtx/vector_query.hpp>
 #include <iostream>
 #include <random>
 #include <vector>
+#include <filesystem>
+#include <optional>
 
 #define CL_TARGET_OPENCL_VERSION 200
 #include <glm/glm.hpp>
@@ -13,12 +14,13 @@
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
-
+#include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/euler_angles.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/rotate_vector.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/string_cast.hpp>
+#include <glm/gtx/vector_query.hpp>
 
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
@@ -49,20 +51,20 @@ glm::mat4 view_matrix(const Camera &camera) {
 
 glm::vec3 quaternion_to_eulerZYX(const glm::quat &q) {
 	glm::vec3 a;
-	// roll 
-    double sinr_cosp = 2 * (q.w * q.x + q.y * q.z);
-    double cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y);
-    a.x = atan2(sinr_cosp, cosr_cosp);
+	// roll
+	double sinr_cosp = 2 * (q.w * q.x + q.y * q.z);
+	double cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y);
+	a.x = atan2(sinr_cosp, cosr_cosp);
 
-    // pitch 
-    double sinp = std::sqrt(1 + 2 * (q.w * q.y - q.x * q.z));
-    double cosp = std::sqrt(1 - 2 * (q.w * q.y - q.x * q.z));
-    a.y = 2.0f * atan2(sinp, cosp) - M_PI / 2;
+	// pitch
+	double sinp = std::sqrt(1 + 2 * (q.w * q.y - q.x * q.z));
+	double cosp = std::sqrt(1 - 2 * (q.w * q.y - q.x * q.z));
+	a.y = 2.0f * atan2(sinp, cosp) - M_PI / 2;
 
-    // yaw 
-    double siny_cosp = 2 * (q.w * q.z + q.x * q.y);
-    double cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
-    a.z = atan2(siny_cosp, cosy_cosp);
+	// yaw
+	double siny_cosp = 2 * (q.w * q.z + q.x * q.y);
+	double cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
+	a.z = atan2(siny_cosp, cosy_cosp);
 
 	return a;
 }
@@ -80,6 +82,60 @@ void save_ppm(std::vector<uint8_t> &pixels) {
 
 		file.write((char *)p + 1, 3);
 	}
+}
+
+/// Loads an STL model from a file.
+/// Caches which models are already loaded.
+///
+/// Returns the triangle index at which the model starts and its number of triangles.
+/// Returns nullopt if the given file does not exist
+std::optional<std::pair<uint, uint>> load_stl_model(const std::filesystem::path &filename, std::vector<Triangle> &triangles, bool clear_cache) {
+	namespace fs = std::filesystem;
+	static std::unordered_map<fs::path, std::pair<uint, uint>> loaded;
+
+	if (!clear_cache && loaded.contains(filename)) {
+		return loaded.at(filename);
+	}
+
+	std::ifstream file;
+	file.open(filename, std::ios::binary | std::ios::in);
+	if (file.fail()) {
+		return std::nullopt;
+	}
+
+	struct StlHeader {
+		uint8_t header[80];
+		uint32_t num_triangles;
+	};
+
+	struct __attribute__((packed)) StlTriangle {
+		float normal[3];
+		float v1[3];
+		float v2[3];
+		float v3[3];
+		uint16_t attribute;
+	};
+
+	StlHeader header;
+	file.read((char *)&header, sizeof(StlHeader));
+
+	size_t model_index = triangles.size();
+
+	for (size_t i = 0; i < header.num_triangles; i++) {
+		StlTriangle t;
+		file.read((char *)&t, sizeof(StlTriangle));
+
+#define ARRAY_TO_VEC3(x) (glm::vec3(x[0], x[1], x[2]))
+		triangles.push_back(Triangle(
+			ARRAY_TO_VEC3(t.normal),
+			ARRAY_TO_VEC3(t.v1),
+			ARRAY_TO_VEC3(t.v2),
+			ARRAY_TO_VEC3(t.v3)
+		));
+	}
+
+	loaded[filename] = { model_index, header.num_triangles };
+	return {{ model_index, header.num_triangles }};
 }
 
 double now() {
@@ -122,48 +178,6 @@ int main(int argc, char **) {
 
 	Box::create_triangle(triangles);
 
-	struct StlHeader {
-		uint8_t header[80];
-		uint32_t num;
-	};
-
-	struct __attribute__((packed)) StlTriangle {
-		float normal[3];
-		float v1[3];
-		float v2[3];
-		float v3[3];
-		uint16_t attribute;
-	};
-
-	FILE *monke = fopen("monke.stl", "r");
-	if (monke == nullptr) {
-		std::cout << "No monke\n";
-		return 0;
-	}
-
-	StlHeader header;
-	fread(&header, sizeof(StlHeader), 1, monke);
-
-	size_t monke_index = triangles.size();
-
-	for (size_t i = 0; i < header.num; i++) {
-		StlTriangle triangle;
-		fread(&triangle, sizeof(StlTriangle), 1, monke);
-
-#define ARRAY_TO_VEC3(x) (glm::vec3(x[0], x[1], x[2]))
-		auto v1 = glm::rotateX(ARRAY_TO_VEC3(triangle.v1), -1.6f);
-		auto v2 = glm::rotateX(ARRAY_TO_VEC3(triangle.v2), -1.6f);
-		auto v3 = glm::rotateX(ARRAY_TO_VEC3(triangle.v3), -1.6f);
-
-		triangles.push_back(Triangle(ARRAY_TO_VEC3(triangle.normal), v1, v2, v3));
-	}
-
-	fclose(monke);
-
-	auto monke_model = Model(triangles, Material(), monke_index, header.num);
-
-	// shapes.push_back(monke_model);
-
 	// for (int i = 0; i < 25; i++) {
 	// 	float x = (float)(i % 5) / 4.0f;
 	// 	float y = (int)(i / 5) / 4.0f;
@@ -188,10 +202,9 @@ int main(int argc, char **) {
 	glm::mat4 camera_to_world;
 
 	Tracer tracer(RENDER_WIDTH, RENDER_HEIGHT);
-	Tracer::RenderData options(RENDER_WIDTH, RENDER_HEIGHT);
 
-	options.num_samples = 2;
-	options.num_bounces = 10;
+	tracer.options.num_samples = 2;
+	tracer.options.num_bounces = 10;
 
 	tracer.scene_data.horizon_color = color::from_hex(0x91c8f2);
 	tracer.scene_data.zenith_color = color::from_hex(0x40aff9);
@@ -214,17 +227,21 @@ int main(int argc, char **) {
 	// Other state
 	int tick = 0;
 	cl_uint time_not_moved = 1;
-	double average = 0.;
+	double average = 0.0;
+	float delta_time = 0.0;
+
+	float movement_speed = 15.0f;
+	float look_around_speed = 25.0f;
 
 	bool render_raytracing = true;
 	bool demo_window = false;
 
-	int num_frame_samples = 30;
+	int num_frame_samples = 60;
 	std::deque<float> frame_times;
 	frame_times.resize(num_frame_samples);
 
 	bool limit_fps = true;
-	int fps_limit = 30;
+	int fps_limit = 60;
 
 	SDL_Event event;
 	while (running) {
@@ -260,19 +277,24 @@ int main(int argc, char **) {
 				fov_scale = glm::tan(fov / 2.f);
 				time_not_moved = 1;
 				break;
-			case SDL_MOUSEMOTION:
+			case SDL_MOUSEMOTION: {
 				if (!cursor_moving)
 					break;
 
+				auto get_look_speed = [delta_time, look_around_speed, fov_scale](float rel) {
+					return glm::pi<float>() * rel * delta_time * look_around_speed * fov_scale / 1000.f;
+				};
+
 				if (event.motion.xrel != 0) {
-					camera.rotation.y += glm::pi<float>() * event.motion.xrel / 1000.f * fov_scale;
+					camera.rotation.y += get_look_speed(event.motion.xrel);
 				}
 
 				if (event.motion.yrel != 0) {
-					camera.rotation.x += glm::pi<float>() * event.motion.yrel / 1000.f * fov_scale;
+					camera.rotation.x += get_look_speed(event.motion.yrel);
 				}
 				time_not_moved = 1;
 				break;
+			}
 			default:
 				break;
 			}
@@ -417,6 +439,38 @@ int main(int argc, char **) {
 				shapes.push_back(Box::model(Material(), glm::vec3(0.0f), glm::vec3(1.0f)));
 				rerender |= true;
 			}
+			ImGui::SameLine();
+			if (ImGui::Button("Add model")) {
+				ImGui::OpenPopup("model");
+			}
+
+			if (ImGui::BeginPopup("model")) {
+				static char filename[1024];
+				static bool error = false;
+				ImGui::InputText("STL filename", filename, 1024);
+
+				if (error) {
+					ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.4f, 1.0f), "Inexistant file");
+				}
+
+				if (ImGui::Button("Add to scene")) {
+					auto indices = load_stl_model(filename, triangles, false);
+					if (!indices.has_value()) {
+						error = true;
+					} else {
+						std::memset(filename, 0, 1024);
+						error = false;
+
+						auto model = Model(triangles, Material(), indices->first, indices->second);
+						shapes.push_back(model);
+						rerender |= true;
+
+						ImGui::CloseCurrentPopup();
+					}
+				}
+
+				ImGui::EndPopup();
+			}
 
 			ImGui::TreePop();
 		}
@@ -424,6 +478,8 @@ int main(int argc, char **) {
 		if (ImGui::TreeNode("Camera")) {
 			rerender |= ImGui::DragFloat3("Position", &camera.position.x, 0.1f);
 			rerender |= ImGui::DragFloat3("Orientation", &camera.rotation.x, 0.1f);
+			ImGui::DragFloat("Movement Speed", &movement_speed, 0.1f, 1.0f, 50.0f);
+			ImGui::DragFloat("Look Speed", &look_around_speed, 0.1f, 1.0f, 50.0f);
 
 			ImGui::TreePop();
 		}
@@ -448,8 +504,8 @@ int main(int argc, char **) {
 		}
 
 		if (ImGui::TreeNode("Render Parameters")) {
-			ImGui::SliderInt("Samples", &options.num_samples, 1, 32);
-			rerender |= ImGui::SliderInt("Bounces", &options.num_bounces, 1, 32);
+			ImGui::SliderInt("Samples", &tracer.options.num_samples, 1, 32);
+			rerender |= ImGui::SliderInt("Bounces", &tracer.options.num_bounces, 1, 32);
 
 			ImGui::Checkbox("Limit FPS", &limit_fps);
 			if (limit_fps) {
@@ -473,6 +529,7 @@ int main(int argc, char **) {
 		if (rerender) {
 			time_not_moved = 1;
 		}
+
 		ImGui::End();
 
 		if (ImGui::Begin("Frame times")) {
@@ -517,7 +574,7 @@ int main(int argc, char **) {
 			); // 0 at the end nullify's translation
 
 			if (!glm::all(glm::isnan(movement)) && !glm::isNull(movement, glm::epsilon<float>())) {
-				camera.position += movement;
+				camera.position += movement * delta_time * movement_speed;
 				time_not_moved = 1;
 			}
 		}
@@ -530,13 +587,14 @@ int main(int argc, char **) {
 		}
 
 		if (render_raytracing) {
+			auto &options = tracer.options;
 			options.aspect_ratio = aspect_ratio;
 			options.fov_scale = fov_scale;
 			options.camera_to_world = camera_to_world;
 			options.time = start * 1000;
 			options.tick = tick;
 
-			tracer.render(time_not_moved, options, pixels);
+			tracer.render(time_not_moved, pixels);
 
 			// Render to screen
 			SDL_UpdateTexture(texture, NULL, pixels.data(), RENDER_WIDTH * 4);
@@ -554,7 +612,7 @@ int main(int argc, char **) {
 
 		SDL_RenderPresent(renderer);
 
-		double loop_duration = (now() - start);
+		double loop_duration = now() - start;
 		frame_times.pop_front();
 		frame_times.push_back(loop_duration);
 
@@ -569,6 +627,8 @@ int main(int argc, char **) {
 		}
 		if (limit_fps && loop_duration < 1.0 / fps_limit)
 			SDL_Delay((1.0 / fps_limit - loop_duration) * 1000);
+
+		delta_time = now() - start;
 	}
 
 	ImGui_ImplSDLRenderer_Shutdown();

@@ -6,10 +6,9 @@ static void rebuild_if_too_small(compute::buffer &buffer, size_t size) {
 	}
 }
 
-Tracer::Tracer(const int width, const int height) {
+Tracer::Tracer(const int width, const int height) : options(width, height) {
 	// Get the default device
 	device = compute::system::default_device();
-
 	std::cout << device.name() << " on " << device.vendor() << '\n';
 
 	// Create a context from the device
@@ -70,17 +69,17 @@ void Tracer::clear_canvas() {
 	queue.enqueue_fill_buffer(render_canvas, &pattern, sizeof(float), 0, render_canvas.size());
 }
 
-void Tracer::render(cl_uint ticks_stopped, RenderData &render_data, std::vector<uint8_t> &output) {
+void Tracer::render(cl_uint ticks_stopped, std::vector<uint8_t> &output) {
 	// Raytrace to canvas
-	kernel.set_arg(0, sizeof(RenderData), &render_data);
-	queue.enqueue_1d_range_kernel(kernel, 0, render_data.width * render_data.height, 0);
+	kernel.set_arg(0, sizeof(RenderData), &options);
+	queue.enqueue_1d_range_kernel(kernel, 0, options.width * options.height, 0);
 
 	// Average with the last samples
 	average_kernel.set_arg(0, sizeof(cl_uint), &ticks_stopped);
-	queue.enqueue_1d_range_kernel(average_kernel, 0, render_data.width * render_data.height, 0);
+	queue.enqueue_1d_range_kernel(average_kernel, 0, options.width * options.height, 0);
 
 	// Transfer result from gpu buffer to array
 	queue.enqueue_read_buffer(
-		render_output, 0, sizeof(cl_uchar4) * render_data.width * render_data.height, output.data()
+		render_output, 0, sizeof(cl_uchar4) * options.width * options.height, output.data()
 	);
 }
