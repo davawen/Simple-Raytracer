@@ -6,8 +6,7 @@
 #include <random>
 #include <vector>
 
-#define CL_TARGET_OPENCL_VERSION 300
-
+#define CL_TARGET_OPENCL_VERSION 200
 #include <glm/glm.hpp>
 
 #include <glm/ext/matrix_common.hpp>
@@ -137,6 +136,10 @@ int main(int argc, char **) {
 	};
 
 	FILE *monke = fopen("monke.stl", "r");
+	if (monke == nullptr) {
+		std::cout << "No monke\n";
+		return 0;
+	}
 
 	StlHeader header;
 	fread(&header, sizeof(StlHeader), 1, monke);

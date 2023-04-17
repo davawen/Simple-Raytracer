@@ -10,13 +10,15 @@ Tracer::Tracer(const int width, const int height) {
 	// Get the default device
 	device = compute::system::default_device();
 
+	std::cout << device.name() << " on " << device.vendor() << '\n';
+
 	// Create a context from the device
 	context = compute::context(device);
 
 	// Creates the program from source
 	try {
 		program = compute::program::create_with_source_file("kernel.cl", context);
-		program.build();
+		program.build("-cl-std=CL2.0");
 	} catch (compute::program_build_failure &e) {
 		std::cerr << e.build_log() << '\n' << e.error_string() << '\n';
 		throw e;

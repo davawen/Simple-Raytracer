@@ -2,7 +2,7 @@
 
 #include <glm/glm.hpp>
 
-#define CL_TARGET_OPENCL_VERSION 300
+#define CL_TARGET_OPENCL_VERSION 200
 #include <boost/compute/types.hpp>
 
 #include "color.hpp"

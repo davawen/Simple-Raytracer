@@ -2,7 +2,8 @@
 #include <stdexcept>
 #include <vector>
 
-#define CL_TARGET_OPENCL_VERSION 300
+#define CL_TARGET_OPENCL_VERSION 200
+
 #include <boost/compute/buffer.hpp>
 #include <boost/compute/core.hpp>
 #include <boost/compute/utility.hpp>
