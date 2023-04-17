@@ -39,6 +39,7 @@ typedef struct {
 } Plane;
 
 typedef struct {
+	float3 normal;
 	float3 vertices[3];
 } Triangle;
 
@@ -49,7 +50,8 @@ typedef struct {
 	float3 bounding_min;
 	float3 bounding_max;
 	float3 position;
-	float3 size;
+	float3 scale;
+	float4 orientation;
 } Model;
 
 typedef enum {
@@ -98,12 +100,25 @@ typedef struct {
 	__global const Triangle *triangles;
 } Scene;
 
-float4 matrix_by_vector(const float4 m[4], const float4 v) {
+float4 matrix_by_vector(__generic const float4 *m, const float4 v) {
 	return (float4
 	)(m[0].x * v.x + m[1].x * v.y + m[2].x * v.z + m[3].x * v.w,
 	  m[0].y * v.x + m[1].y * v.y + m[2].y * v.z + m[3].y * v.w,
 	  m[0].z * v.x + m[1].z * v.y + m[2].z * v.z + m[3].z * v.w,
 	  m[0].w * v.x + m[1].w * v.y + m[2].w * v.z + m[3].w * v.w);
+}
+
+/// Rotates the vector `v` by the quaterion `q`
+inline float3 rotate(float3 v, float4 q) {
+	float3 q_vec = q.xyz;
+	float3 uv = cross(q_vec, v);
+	float3 uuv = cross(q_vec, uv);
+
+	return v + ((uv * q.w) + uuv) * 2.0f;
+}
+
+inline float3 transform(float3 p, float3 translation, float3 scale, float4 orientation) {
+	return rotate(p*scale, orientation) + translation;
 }
 
 inline float3 reflect(const float3 v, const float3 n) {
@@ -143,7 +158,7 @@ inline float shlick_reflectance(float mu, float cos_theta) {
 	return r0 + (1.0 - r0) * pown(1.0 - cos_theta, 5);
 }
 
-bool intersect_sphere(__global const Sphere *sphere, const Ray *ray, float *t) {
+bool intersect_sphere(__generic const Sphere *sphere, const Ray *ray, float *t) {
 	float3 rayToCenter = sphere->position - ray->origin;
 
 	/* calculate coefficients a, b, c from quadratic equation */
@@ -169,7 +184,7 @@ bool intersect_sphere(__global const Sphere *sphere, const Ray *ray, float *t) {
 	return true;
 }
 
-bool intersect_plane(__global const Plane *plane, const Ray *ray, float *t) {
+bool intersect_plane(__generic const Plane *plane, const Ray *ray, float *t) {
 	float denom = dot(plane->normal, ray->direction);
 
 	if (fabs(denom) == 0.f)
@@ -186,7 +201,7 @@ bool intersect_plane(__global const Plane *plane, const Ray *ray, float *t) {
 	return true;
 }
 
-float intersect_triangle(Triangle *triangle, const Ray *ray, float *t) {
+float intersect_triangle(__generic Triangle *triangle, const Ray *ray, float *t) {
 	float3 edge1, edge2, h, s, q;
 	float a, f, u, v;
 
@@ -257,7 +272,6 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 						rayhit->normal = normalize(rayhit->position - sphere->position);
 						rayhit->front =
 							length_squared(ray->origin - sphere->position) > sphere->radius * fabs(sphere->radius);
-						rayhit->normal *= rayhit->front ? 1.0f : -1.0f;
 					}
 				}
 			}
@@ -271,8 +285,9 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 			// Test every triangle in the model
 			for (size_t i = 0; i < model->num_triangles; i++) {
 				Triangle triangle = scene->triangles[model->triangle_index + i];
+				triangle.normal = rotate(triangle.normal, model->orientation);
 				for (size_t j = 0; j <= 2; j++) {
-					triangle.vertices[j] = triangle.vertices[j] * model->size + model->position;
+					triangle.vertices[j] = transform(triangle.vertices[j], model->position, model->scale, model->orientation);
 				}
 
 				float t_i;
@@ -282,13 +297,8 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 						closest = &model->material;
 
 						if (rayhit != NULL) {
-							float3 A = triangle.vertices[1] - triangle.vertices[0];
-							float3 B = triangle.vertices[2] - triangle.vertices[0];
-
-							rayhit->normal = normalize((float3
-							)(A.y * B.z - A.z * B.y, A.z * B.x - A.x * B.z, A.x * B.y - A.y * B.x));
+							rayhit->normal = triangle.normal;
 							rayhit->front = dot(rayhit->normal, ray->direction) < 0.0f;
-							rayhit->normal *= rayhit->front ? 1 : -1; // Reflect normal to face camera
 							rayhit->position = ray->origin + ray->direction * tmin;
 						}
 					}
@@ -304,9 +314,8 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 					closest = &plane->material;
 
 					if (rayhit != NULL) {
+						rayhit->normal = plane->normal;
 						rayhit->front = dot(plane->normal, ray->direction) < 0.0f;
-						rayhit->normal =
-							rayhit->front ? plane->normal : -plane->normal; // Reflect normal to face camera
 						rayhit->position = ray->origin + ray->direction * tmin;
 					}
 				}
@@ -317,6 +326,9 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 	if (tmin == FLT_MAX)
 		return NULL;
 
+	if (rayhit != NULL) {
+		rayhit->normal *= rayhit->front ? 1.0f : -1.0f; // Reflect normal to always face the camera
+	}
 	return closest;
 }
 
@@ -326,8 +338,8 @@ float3 sky_box(Ray ray, const Scene *scene) {
 
 	float sky_gradient_t = pow(smoothstep(0.0f, 0.4f, ray.direction.y), 0.35f);
 	float3 sky_gradient = mix(scene->data->horizon_color, scene->data->zenith_color, sky_gradient_t);
-	float3 sun = pow(max(dot(ray.direction, -scene->data->sun_direction), 0.0f), scene->data->sun_focus) *
-	             scene->data->sun_color * scene->data->sun_intensity;
+	float3 sun = pow(max(dot(ray.direction, -scene->data->sun_direction), 0.0f), scene->data->sun_focus)
+		* scene->data->sun_color * scene->data->sun_intensity;
 
 	float ground_to_sky = smoothstep(-0.01f, 0.0f, ray.direction.y); // 0 -> 1 step function
 	float sun_mask = ground_to_sky >= 1;
@@ -362,23 +374,27 @@ float3 trace(int num_bounces, const Scene *scene, Ray *camray, uint seed) {
 
 			bool transparent = material->refraction_index != 0.0f;
 
-			float mu = rayhit.front ? 1.0f / material->refraction_index : material->refraction_index;
-			float cos_theta = min(1.0f, dot(ray.direction, -rayhit.normal));
-			float sin_theta = sqrt(1.0f - cos_theta * cos_theta);
+			if (transparent) {
+				float mu = rayhit.front ? 1.0f / material->refraction_index : material->refraction_index;
+				float cos_theta = min(1.0f, dot(ray.direction, -rayhit.normal));
+				float sin_theta = sqrt(1.0f - cos_theta * cos_theta);
 
-			float3 out_perp = mu * (ray.direction + cos_theta * rayhit.normal);
-			float3 out_parallel = -sqrt(fabs(1.0f - length_squared(out_perp))) * rayhit.normal;
-			float3 refracted_dir = out_perp + out_parallel;
+				float3 out_perp = mu * (ray.direction + cos_theta * rayhit.normal);
+				float3 out_parallel = -sqrt(fabs(1.0f - length_squared(out_perp))) * rayhit.normal;
+				float3 refracted_dir = out_perp + out_parallel;
 
-			bool transparent_reflection = mu * sin_theta > 1.0f // total internal reflection
-			                              || shlick_reflectance(mu, cos_theta) > random_float(&seed);
+				bool transparency_reflected = mu * sin_theta > 1.0f // total internal reflection
+					|| shlick_reflectance(mu, cos_theta) > random_float(&seed);
 
-			float3 transparent_dir = transparent_reflection ? glossy_dir : refracted_dir;
+				ray.direction = transparency_reflected ? glossy_dir : refracted_dir;
+				mask *= mix(material->color, material->specular_color, transparency_reflected);
+			} else {
+				ray.direction = glossy_dir;
+				mask *= mix(material->color, material->specular_color, is_specular);
+			}
 
-			ray.direction = transparent ? transparent_dir : glossy_dir;
-			ray.origin += rayhit.normal*sign(dot(rayhit.normal, ray.direction))*0.001f; // avoid shadow acne
+			ray.origin += rayhit.normal * sign(dot(rayhit.normal, ray.direction)) * 0.001f; // avoid shadow acne
 
-			mask *= mix(material->color, material->specular_color, is_specular);
 		} else { // No collision -- Sky
 			mask *= sky_box(ray, scene);
 			color += mask;

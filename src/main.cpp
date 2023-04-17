@@ -1,5 +1,7 @@
 #include <chrono>
 #include <cstdint>
+#include <functional>
+#include <glm/gtx/vector_query.hpp>
 #include <iostream>
 #include <random>
 #include <vector>
@@ -16,6 +18,7 @@
 #include <glm/gtx/euler_angles.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/rotate_vector.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/string_cast.hpp>
 
 #include "imgui.h"
@@ -43,6 +46,26 @@ glm::mat4 view_matrix(const Camera &camera) {
 	view *= glm::eulerAngleYZX(camera.rotation.y, camera.rotation.z, camera.rotation.x);
 
 	return view;
+}
+
+glm::vec3 quaternion_to_eulerZYX(const glm::quat &q) {
+	glm::vec3 a;
+	// roll 
+    double sinr_cosp = 2 * (q.w * q.x + q.y * q.z);
+    double cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y);
+    a.x = atan2(sinr_cosp, cosr_cosp);
+
+    // pitch 
+    double sinp = std::sqrt(1 + 2 * (q.w * q.y - q.x * q.z));
+    double cosp = std::sqrt(1 - 2 * (q.w * q.y - q.x * q.z));
+    a.y = 2.0f * atan2(sinp, cosp) - M_PI / 2;
+
+    // yaw 
+    double siny_cosp = 2 * (q.w * q.z + q.x * q.y);
+    double cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
+    a.z = atan2(siny_cosp, cosy_cosp);
+
+	return a;
 }
 
 void save_ppm(std::vector<uint8_t> &pixels) {
@@ -129,7 +152,7 @@ int main(int argc, char **) {
 		auto v2 = glm::rotateX(ARRAY_TO_VEC3(triangle.v2), -1.6f);
 		auto v3 = glm::rotateX(ARRAY_TO_VEC3(triangle.v3), -1.6f);
 
-		triangles.push_back(Triangle(v1, v2, v3));
+		triangles.push_back(Triangle(ARRAY_TO_VEC3(triangle.normal), v1, v2, v3));
 	}
 
 	fclose(monke);
@@ -138,18 +161,21 @@ int main(int argc, char **) {
 
 	// shapes.push_back(monke_model);
 
-	for (int i = 0; i < 25; i++) {
-		float x = (float)(i % 5) / 4.0f;
-		float y = (int)(i / 5) / 4.0f;
-
-		Sphere sphere = Sphere(Material(color::white, 1.0f, 1.0f, color::white, (i+1)/10.0f), {x * 80.0f, 10, y * 80.0f}, 7.0f);
-		shapes.push_back(sphere);
-	}
+	// for (int i = 0; i < 25; i++) {
+	// 	float x = (float)(i % 5) / 4.0f;
+	// 	float y = (int)(i / 5) / 4.0f;
+	//
+	// 	Sphere sphere = Sphere(
+	// 		Material(color::white, i < 12 ? 1.0f : 0.0f, 1.0f, color::white, i < 12 ? 1.4f : 0.0f),
+	// 		{x * 80.0f, 10, y * 80.0f}, 7.0f
+	// 	);
+	// 	shapes.push_back(sphere);
+	// }
 
 	Plane ground_plane = Plane(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f), {0, 0, 0}, {0, 1, 0});
 	shapes.push_back(ground_plane);
 
-	Camera camera = {{0.0f, 50.0f, 0.0f}, {0.0f, 0.0f, 0.0f}};
+	Camera camera = {{0.0f, 50.0f, 0.0f}, {0.974f, 0.811f, 0.0f}};
 
 	float aspect_ratio = static_cast<float>(RENDER_WIDTH) / RENDER_HEIGHT;
 
@@ -263,7 +289,85 @@ int main(int argc, char **) {
 				auto &shape = shapes[i];
 				ImGui::PushID(i);
 
-				auto show_material = [&rerender](Material &material) {
+				const char *names[] = {"Sphere", "Plane", "Model"};
+				const char *name = names[shape.type];
+
+				std::function<Material &()> properties[] = {
+					[&shape, &rerender]() -> Material & {
+						auto &sphere = shape.shape.sphere;
+						rerender |= ImGui::DragFloat3("Position", &sphere.position.x, 0.1f);
+						rerender |= ImGui::DragFloat("Radius", &sphere.radius, 0.05f, 1.0f, 0.1f);
+						return sphere.material;
+					},
+					[&shape, &rerender]() -> Material & {
+						auto &plane = shape.shape.plane;
+						rerender |= ImGui::DragFloat3("Position", &plane.position.x, 0.1f);
+						return plane.material;
+					},
+					[&triangles, &shape, &rerender]() -> Material & {
+						auto &model = shape.shape.model;
+						ImGui::Text("%d triangles", model.num_triangles);
+
+						glm::vec3 angles = quaternion_to_eulerZYX(model.orientation);
+						angles = glm::degrees(angles);
+
+						bool moved = false;
+						moved |= ImGui::DragFloat3("Position", &model.position.x, 0.1f);
+						moved |= ImGui::DragFloat3("Size", &model.scale.x, 0.1f);
+						if (ImGui::SliderFloat3("Rotation", &angles.x, -180.0f, 180.0f, "%.1f deg")) {
+							model.orientation = glm::quat(glm::radians(angles));
+							// glm::eulerAngleZYX
+							moved |= true;
+						}
+
+						if (moved) {
+							model.compute_bounding_box(triangles);
+							rerender |= true;
+						}
+
+						return model.material;
+					}};
+				std::function<Material &()> inner = properties[shape.type];
+
+				auto drag_and_drop = [&shapes, &i, &name]() {
+					if (ImGui::BeginDragDropSource()) {
+						ImGui::SetDragDropPayload("SHAPE", &i, sizeof(i));
+						ImGui::Text("Swap with %s", name);
+						ImGui::EndDragDropSource();
+					}
+					if (ImGui::BeginDragDropTarget()) {
+						if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("SHAPE")) {
+							if (payload->DataSize != sizeof(i)) {
+								return;
+							}
+							size_t j = *(size_t *)payload->Data;
+							std::swap(shapes[i], shapes[j]);
+						}
+
+						ImGui::EndDragDropTarget();
+					}
+				};
+
+				auto close_button = [&shapes, &i, &rerender]() {
+					ImGui::SameLine();
+					// Right-align
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 10.0f);
+					ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f)); // small button
+
+					if (ImGui::Button("X", ImVec2(10.0f, 0.0f))) {
+						shapes.erase(shapes.begin() + i);
+						i -= 1;
+						rerender |= true;
+					}
+
+					ImGui::PopStyleVar();
+				};
+
+				if (ImGui::TreeNode(name)) {
+					drag_and_drop();
+					close_button();
+
+					auto &material = inner();
 					bool transparent = material.refraction_index != 0.0f;
 
 					if (ImGui::TreeNode("Material")) {
@@ -291,49 +395,11 @@ int main(int argc, char **) {
 
 						ImGui::TreePop();
 					}
-				};
 
-				bool not_removed = true;
-
-				if (shape.type == ShapeType::SHAPE_SPHERE) {
-					auto &sphere = shape.shape.sphere;
-					if (ImGui::CollapsingHeader("Sphere", &not_removed)) {
-						rerender |= ImGui::DragFloat3("Position", &sphere.position.x, 0.1f);
-						rerender |= ImGui::DragFloat("Radius", &sphere.radius, 0.05f, 1.0f, 0.1f);
-						show_material(sphere.material);
-					}
-				} else if (shape.type == ShapeType::SHAPE_PLANE) {
-					auto &plane = shape.shape.plane;
-					if (ImGui::CollapsingHeader("Plane", &not_removed)) {
-						rerender |= ImGui::DragFloat3("Position", &plane.position.x, 0.1f);
-						show_material(plane.material);
-					}
-				} else if (shape.type == ShapeType::SHAPE_MODEL) {
-					auto &model = shape.shape.model;
-					if (ImGui::CollapsingHeader("Model", &not_removed)) {
-						ImGui::Text("%d triangles", model.num_triangles);
-
-						auto position = model.position;
-						if (ImGui::DragFloat3("Position", &position.x, 0.1f)) {
-							model.move(position);
-							rerender |= true;
-						}
-						auto size = model.size;
-						if (ImGui::DragFloat3("Size", &size.x, 0.1f)) {
-							model.scale(size);
-							rerender |= true;
-						}
-
-						show_material(model.material);
-						// ImGui::TreePop();
-					}
-				}
-
-				// ImGui::SameLine(0.0f, 30.0f);
-				if (!not_removed) {
-					shapes.erase(shapes.begin() + i);
-					i -= 1;
-					rerender |= true;
+					ImGui::TreePop();
+				} else {
+					drag_and_drop();
+					close_button();
 				}
 
 				ImGui::PopID();
@@ -384,7 +450,8 @@ int main(int argc, char **) {
 
 			ImGui::Checkbox("Limit FPS", &limit_fps);
 			if (limit_fps) {
-				ImGui::SameLine(); ImGui::SliderInt("Limit", &fps_limit, 10, 240);
+				ImGui::SameLine();
+				ImGui::SliderInt("Limit", &fps_limit, 10, 240);
 			}
 
 			ImGui::TreePop();
@@ -425,7 +492,8 @@ int main(int argc, char **) {
 			ImGui::Text("Average timing: %.3f ms", sum * 1000.0f);
 			ImGui::Text("FPS: %.1f", 1.0f / sum);
 			if (limit_fps) {
-				ImGui::SameLine(); ImGui::Text("limited to %d FPS", fps_limit);
+				ImGui::SameLine();
+				ImGui::Text("limited to %d FPS", fps_limit);
 			}
 
 			if (ImGui::SliderInt("Number of samples", &num_frame_samples, 1, 120)) {
@@ -461,7 +529,7 @@ int main(int argc, char **) {
 		if (render_raytracing) {
 			options.aspect_ratio = aspect_ratio;
 			options.fov_scale = fov_scale;
-			options.set_matrix(camera_to_world);
+			options.camera_to_world = camera_to_world;
 			options.time = start * 1000;
 			options.tick = tick;
 
@@ -496,8 +564,8 @@ int main(int argc, char **) {
 			tick = 0;
 			average = 0.0f;
 		}
-		if (limit_fps && loop_duration < 1.0/fps_limit)
-			SDL_Delay((1.0/fps_limit - loop_duration) * 1000);
+		if (limit_fps && loop_duration < 1.0 / fps_limit)
+			SDL_Delay((1.0 / fps_limit - loop_duration) * 1000);
 	}
 
 	ImGui_ImplSDLRenderer_Shutdown();

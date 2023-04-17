@@ -5,7 +5,11 @@
 
 #define GLM_FORCE_SWIZZLE
 #include <glm/glm.hpp>
-#include <glm/gtx/intersect.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/ext/matrix_common.hpp>
+#include <glm/ext/matrix_transform.hpp>
+#include <glm/gtx/rotate_vector.hpp>
 
 #define CL_TARGET_OPENCL_VERSION 300
 #include <boost/compute/types.hpp>
@@ -32,12 +36,13 @@ struct Plane {
 };
 
 struct Triangle {
+	alignas(cl_float3) glm::vec3 normal;
     struct Vertex {
         alignas(cl_float3) glm::vec3 p;
     } vertices[3];
 
 	Triangle();
-    Triangle(const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2);
+    Triangle(const glm::vec3 &normal, const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2);
 };
 
 /// Collection of triangles
@@ -47,17 +52,22 @@ struct Model {
     cl_uint num_triangles;
     alignas(cl_float3) glm::vec3 bounding_min;
     alignas(cl_float3) glm::vec3 bounding_max;
-    alignas(cl_float3) glm::vec3 position;
-    alignas(cl_float3) glm::vec3 size;
+	alignas(cl_float3) glm::vec3 position;
+	alignas(cl_float3) glm::vec3 scale;
+	alignas(cl_float3) glm::quat orientation;
 
 	Model();
+
+	/// Create model and compute its bounding box
 	Model(const std::vector<Triangle> &triangles, Material material, cl_uint triangle_index, cl_uint num_triangles);
 
+	void compute_bounding_box(const std::vector<Triangle> &triangles);
+
 	/// Change position and recalculate bounding box
-	void move(glm::vec3 position);
+	// void move(glm::vec3 position);
 
 	/// Change size and recalculate bounding box
-	void scale(glm::vec3 size);
+	// void scale(glm::vec3 size);
 };
 
 struct Box {

@@ -43,7 +43,7 @@ class Tracer {
         cl_int num_bounces;
         cl_float aspect_ratio, fov_scale;
 
-        cl_float4 camera_to_world[4];
+		alignas(cl_float4) glm::mat4 camera_to_world;
 
         cl_uint time;
         cl_uint tick;
@@ -53,12 +53,6 @@ class Tracer {
             this->height = height;
 			this->num_samples = 4;
 			this->num_bounces = 10;
-        }
-
-        void set_matrix(const glm::mat4 &camera_to_world_matrix) {
-            for (size_t i = 0; i < 4; i++) {
-                camera_to_world[i] = VEC4TOCL(camera_to_world_matrix[i]);
-            }
         }
     };
 

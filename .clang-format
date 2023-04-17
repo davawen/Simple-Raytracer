@@ -3,3 +3,5 @@ IndentWidth: 4
 UseTab: AlignWithSpaces
 BreakBeforeBraces: Attach
 AlignAfterOpenBracket: BlockIndent
+AlignOperands: DontAlign
+BreakBeforeBinaryOperators: NonAssignment

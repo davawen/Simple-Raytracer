@@ -1,0 +1,7 @@
+If:
+  PathMatch: .*\.cl
+
+CompileFlags:
+  Add: [-cl-std=CL3.0]
+  Remove: [-I, -isystem]
+  Compiler: clang
