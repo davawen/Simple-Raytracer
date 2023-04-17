@@ -16,7 +16,7 @@ Tracer::Tracer(const int width, const int height) : options(width, height) {
 
 	// Creates the program from source
 	try {
-		program = compute::program::create_with_source_file("kernel.cl", context);
+		program = compute::program::create_with_source_file("src/render.cl", context);
 		program.build("-cl-std=CL2.0");
 	} catch (compute::program_build_failure &e) {
 		std::cerr << e.build_log() << '\n' << e.error_string() << '\n';
