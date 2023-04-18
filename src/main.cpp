@@ -151,7 +151,7 @@ int main(int argc, char **) {
 	// SDL state
 	bool running = true;
 
-	bool cursor_moving = false;
+	bool accepting_input = false;
 	SDL_SetRelativeMouseMode(SDL_FALSE);
 
 	std::unordered_map<int, bool> pressed_keys;
@@ -184,11 +184,14 @@ int main(int argc, char **) {
 
 			switch (event.type) {
 			case SDL_KEYDOWN:
-				pressed_keys[event.key.keysym.sym] = true;
-				if (event.key.keysym.sym == SDLK_v) {
-					cursor_moving = !cursor_moving;
-					SDL_SetRelativeMouseMode(cursor_moving ? SDL_TRUE : SDL_FALSE);
+				// ctrl-f to toggle input
+				if ((event.key.keysym.mod & KMOD_CTRL) && event.key.keysym.sym == SDLK_f) {
+					accepting_input = !accepting_input;
+					SDL_SetRelativeMouseMode(accepting_input ? SDL_TRUE : SDL_FALSE);
 				}
+
+				if (!accepting_input) break;
+				pressed_keys[event.key.keysym.sym] = true;
 				break;
 			case SDL_KEYUP:
 				pressed_keys[event.key.keysym.sym] = false;
@@ -197,7 +200,7 @@ int main(int argc, char **) {
 				running = false;
 				break;
 			case SDL_MOUSEWHEEL:
-				if (!cursor_moving)
+				if (!accepting_input)
 					break;
 
 				if (event.wheel.y > 0) {
@@ -210,7 +213,7 @@ int main(int argc, char **) {
 				time_not_moved = 1;
 				break;
 			case SDL_MOUSEMOTION: {
-				if (!cursor_moving)
+				if (!accepting_input)
 					break;
 
 				auto get_look_speed = [delta_time, look_around_speed, fov_scale](float rel) {
