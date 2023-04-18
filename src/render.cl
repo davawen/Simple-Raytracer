@@ -16,13 +16,13 @@ typedef struct {
 
 typedef struct {
 	float smoothness;
-	float metalness;
+	float metallic;
+	float specular;
 	float emission_strength;
-	/// Refraction index of 0 = opaque
+	float transmittance;
 	float refraction_index;
 
 	float3 color;
-	float3 specular_color;
 	float3 emission;
 } Material;
 
@@ -368,31 +368,45 @@ float3 trace(int num_bounces, const Scene *scene, Ray *camray, uint seed) {
 			// cosine weighted distribution
 			float3 random_dir = normalize(rayhit.normal + random_direction_hemisphere(rayhit.normal, &seed));
 			float3 reflected_dir = reflect(ray.direction, rayhit.normal);
-			bool is_specular = material->metalness > random_float(&seed);
 
-			float3 glossy_dir = mix(random_dir, reflected_dir, material->smoothness * is_specular);
+			bool is_metallic = material->metallic > random_float(&seed);
+			bool is_specular = material->specular > random_float(&seed);
 
-			bool transparent = material->refraction_index != 0.0f;
+			float3 rough_dir = mix(random_dir, reflected_dir, material->smoothness);
 
-			if (transparent) {
+			bool is_transparent = material->transmittance > random_float(&seed);
+
+			if (!is_transparent) {
+				ray.direction = mix(random_dir, rough_dir, is_metallic || is_specular);
+
+				// diffuse reflection and metal reflection = color with object's albedo
+				// specular refection = white reflection
+				mask *= mix(material->color, (float3)(1.0f), is_specular);
+			} else {
+				// roughness affects refraction
+				// this gives `ray.direction` for a perfectly smooth surface
+				float3 in_dir = reflect(rough_dir, rayhit.normal);
+
 				float mu = rayhit.front ? 1.0f / material->refraction_index : material->refraction_index;
-				float cos_theta = min(1.0f, dot(ray.direction, -rayhit.normal));
+				float cos_theta = min(1.0f, dot(in_dir, -rayhit.normal));
 				float sin_theta = sqrt(1.0f - cos_theta * cos_theta);
-
-				float3 out_perp = mu * (ray.direction + cos_theta * rayhit.normal);
-				float3 out_parallel = -sqrt(fabs(1.0f - length_squared(out_perp))) * rayhit.normal;
-				float3 refracted_dir = out_perp + out_parallel;
 
 				bool transparency_reflected = mu * sin_theta > 1.0f // total internal reflection
 					|| shlick_reflectance(mu, cos_theta) > random_float(&seed);
 
-				ray.direction = transparency_reflected ? glossy_dir : refracted_dir;
-				mask *= mix(material->color, material->specular_color, transparency_reflected);
-			} else {
-				ray.direction = glossy_dir;
-				mask *= mix(material->color, material->specular_color, is_specular);
-			}
+				if (transparency_reflected) {
+					ray.direction = rough_dir;
+				} else {
+					float3 out_perp = mu * (in_dir + cos_theta * rayhit.normal);
+					float3 out_parallel = -sqrt(fabs(1.0f - length_squared(out_perp))) * rayhit.normal;
+					float3 refracted_dir = out_perp + out_parallel;
 
+					ray.direction = refracted_dir;
+					mask *= material->color;
+				}
+			} 
+
+			ray.direction = normalize(ray.direction);
 			ray.origin += rayhit.normal * sign(dot(rayhit.normal, ray.direction)) * 0.001f; // avoid shadow acne
 
 		} else { // No collision -- Sky

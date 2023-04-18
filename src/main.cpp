@@ -328,29 +328,22 @@ int main(int argc, char **) {
 					close_button();
 
 					auto &material = inner();
-					bool transparent = material.refraction_index != 0.0f;
 
 					if (ImGui::TreeNode("Material")) {
 						rerender |= ImGui::ColorEdit3("Color", &material.color.x);
-						rerender |= ImGui::ColorEdit3("Specular Color", &material.specular_color.x);
 						rerender |= ImGui::SliderFloat("Smoothness", &material.smoothness, 0.0f, 1.0f);
-						rerender |= ImGui::SliderFloat("Metalness", &material.metalness, 0.0f, 1.0f);
+						rerender |= ImGui::SliderFloat("Metallic", &material.metallic, 0.0f, 1.0f);
+						rerender |= ImGui::SliderFloat("Specular", &material.specular, 0.0f, 1.0f);
 						rerender |= ImGui::ColorEdit3("Emission", &material.emission.x);
 						rerender |= ImGui::SliderFloat(
 							"Emission Strength", &material.emission_strength, 0.0f, 100.0f, "%.3f",
 							ImGuiSliderFlags_Logarithmic
 						);
-						if (ImGui::Checkbox("Transparent", &transparent)) {
-							material.refraction_index = 1.0f;
-							rerender |= true;
-						}
-						if (transparent) {
-							ImGui::SameLine();
+						rerender |= ImGui::SliderFloat("Transmittance", &material.transmittance, 0.0f, 1.0f);
+						if (material.transmittance > 0.0f) {
 							ImGui::PushItemWidth(-32.0f);
 							rerender |= ImGui::DragFloat("IOR", &material.refraction_index, 0.01f, 1.0f, 20.0f);
 							ImGui::PopItemWidth();
-						} else {
-							material.refraction_index = 0.0f;
 						}
 
 						ImGui::TreePop();
@@ -381,9 +374,9 @@ int main(int argc, char **) {
 
 			if (ImGui::BeginPopup("model")) {
 				static enum { STL, OBJ } filetype;
+				ImGui::Text("Filetype"); ImGui::SameLine();
 				ImGui::RadioButton("STL", (int *)&filetype, STL); ImGui::SameLine();
-				ImGui::RadioButton("OBJ", (int *)&filetype, OBJ); ImGui::SameLine();
-				ImGui::Text("Filetype");
+				ImGui::RadioButton("OBJ", (int *)&filetype, OBJ);
 
 				static char filename[1024];
 				static bool error = false;
