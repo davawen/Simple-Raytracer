@@ -1,11 +1,9 @@
+#include <iostream>
 #include <chrono>
 #include <cstdint>
 #include <functional>
-#include <iostream>
 #include <random>
 #include <vector>
-#include <filesystem>
-#include <optional>
 
 #define CL_TARGET_OPENCL_VERSION 200
 #include <glm/glm.hpp>
@@ -30,6 +28,7 @@
 #include "color.hpp"
 #include "shape.hpp"
 #include "tracer.hpp"
+#include "parser.hpp"
 
 #define WINDOW_WIDTH 960
 #define WINDOW_HEIGHT 540
@@ -67,75 +66,6 @@ glm::vec3 quaternion_to_eulerZYX(const glm::quat &q) {
 	a.z = atan2(siny_cosp, cosy_cosp);
 
 	return a;
-}
-
-void save_ppm(std::vector<uint8_t> &pixels) {
-	std::ofstream file;
-	file.open("out.ppm", std::ios::binary | std::ios::out);
-	std::string header = "P6 ";
-	header += std::to_string(WINDOW_WIDTH) + ' ' + std::to_string(WINDOW_HEIGHT) + ' ';
-	header += "255\n";
-	file.write(header.c_str(), header.size());
-
-	for (size_t i = 0; i < pixels.size(); i += 4) {
-		uint8_t *p = &pixels[i]; // ARGB
-
-		file.write((char *)p + 1, 3);
-	}
-}
-
-/// Loads an STL model from a file.
-/// Caches which models are already loaded.
-///
-/// Returns the triangle index at which the model starts and its number of triangles.
-/// Returns nullopt if the given file does not exist
-std::optional<std::pair<uint, uint>> load_stl_model(const std::filesystem::path &filename, std::vector<Triangle> &triangles, bool clear_cache) {
-	namespace fs = std::filesystem;
-	static std::unordered_map<fs::path, std::pair<uint, uint>> loaded;
-
-	if (!clear_cache && loaded.contains(filename)) {
-		return loaded.at(filename);
-	}
-
-	std::ifstream file;
-	file.open(filename, std::ios::binary | std::ios::in);
-	if (file.fail()) {
-		return std::nullopt;
-	}
-
-	struct StlHeader {
-		uint8_t header[80];
-		uint32_t num_triangles;
-	};
-
-	struct __attribute__((packed)) StlTriangle {
-		float normal[3];
-		float v1[3];
-		float v2[3];
-		float v3[3];
-		uint16_t attribute;
-	};
-
-	StlHeader header;
-	file.read((char *)&header, sizeof(StlHeader));
-
-	size_t model_index = triangles.size();
-
-	for (size_t i = 0; i < header.num_triangles; i++) {
-		StlTriangle t;
-		file.read((char *)&t, sizeof(StlTriangle));
-
-#define ARRAY_TO_VEC3(x) (glm::vec3(x[0], x[1], x[2]))
-		triangles.push_back(Triangle(
-			ARRAY_TO_VEC3(t.normal),
-			ARRAY_TO_VEC3(t.v1),
-			ARRAY_TO_VEC3(t.v2),
-			ARRAY_TO_VEC3(t.v3)
-		));
-	}
-
-	loaded[filename] = { model_index, header.num_triangles };
-	return {{ model_index, header.num_triangles }};
 }
 
 double now() {
@@ -177,6 +107,8 @@ int main(int argc, char **) {
 	std::vector<Triangle> triangles;
 
 	Box::create_triangle(triangles);
+
+	// std::unordered_map<fs::path, ModelPair> model_cache;
 
 	// for (int i = 0; i < 25; i++) {
 	// 	float x = (float)(i % 5) / 4.0f;
@@ -412,7 +344,7 @@ int main(int argc, char **) {
 						if (transparent) {
 							ImGui::SameLine();
 							ImGui::PushItemWidth(-32.0f);
-							rerender |= ImGui::SliderFloat("IOR", &material.refraction_index, 0.1f, 10.0f);
+							rerender |= ImGui::DragFloat("IOR", &material.refraction_index, 0.01f, 1.0f, 20.0f);
 							ImGui::PopItemWidth();
 						} else {
 							material.refraction_index = 0.0f;
@@ -445,16 +377,27 @@ int main(int argc, char **) {
 			}
 
 			if (ImGui::BeginPopup("model")) {
+				static enum { STL, OBJ } filetype;
+				ImGui::RadioButton("STL", (int *)&filetype, STL); ImGui::SameLine();
+				ImGui::RadioButton("OBJ", (int *)&filetype, OBJ); ImGui::SameLine();
+				ImGui::Text("Filetype");
+
 				static char filename[1024];
 				static bool error = false;
-				ImGui::InputText("STL filename", filename, 1024);
+				ImGui::InputText("filename", filename, 1024);
 
 				if (error) {
 					ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.4f, 1.0f), "Inexistant file");
 				}
 
 				if (ImGui::Button("Add to scene")) {
-					auto indices = load_stl_model(filename, triangles, false);
+					std::optional<ModelPair> indices;
+					if (filetype == STL) {
+						indices = load_stl_model(filename, triangles);
+					} else if (filetype == OBJ) {
+						indices = load_obj_model(filename, triangles);
+					}
+
 					if (!indices.has_value()) {
 						error = true;
 					} else {
@@ -480,6 +423,22 @@ int main(int argc, char **) {
 			rerender |= ImGui::DragFloat3("Orientation", &camera.rotation.x, 0.1f);
 			ImGui::DragFloat("Movement Speed", &movement_speed, 0.1f, 1.0f, 50.0f);
 			ImGui::DragFloat("Look Speed", &look_around_speed, 0.1f, 1.0f, 50.0f);
+
+			if (ImGui::Button("Screenshot")) {
+				ImGui::OpenPopup("screenshot");
+			}
+
+			if (ImGui::BeginPopup("screenshot")) {
+				static char filename[1024];
+				ImGui::InputText("Save to", filename, 1024);
+
+				if (ImGui::Button("Save")) {
+					save_ppm(filename, pixels, WINDOW_WIDTH, WINDOW_HEIGHT);
+					ImGui::CloseCurrentPopup();
+				}
+
+				ImGui::EndPopup();
+			}
 
 			ImGui::TreePop();
 		}
@@ -602,7 +561,7 @@ int main(int argc, char **) {
 		}
 
 		if (pressed_keys[SDLK_p]) {
-			save_ppm(pixels);
+			save_ppm("out.ppm", pixels, WINDOW_WIDTH, WINDOW_HEIGHT);
 			pressed_keys[SDLK_p] = false;
 		}
 

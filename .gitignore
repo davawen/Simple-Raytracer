@@ -4,3 +4,5 @@ build/
 Session.vim
 <
 .xmake/
+out.ppm
+imgui.ini
