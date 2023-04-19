@@ -1,13 +1,11 @@
 #include "shape.hpp"
 
-Sphere::Sphere(const Material &material, const glm::vec3 &position, float radius) {
-	this->material = material;
+Sphere::Sphere(const glm::vec3 &position, float radius) {
 	this->position = position;
 	this->radius = radius;
 }
 
-Plane::Plane(const Material &material, const glm::vec3 &position, const glm::vec3 &normal) {
-	this->material = material;
+Plane::Plane(const glm::vec3 &position, const glm::vec3 &normal) {
 	this->position = position;
 	this->normal = normal;
 }
@@ -28,8 +26,7 @@ Triangle::Triangle(const glm::vec3 &normal, const glm::vec3 &v0, const glm::vec3
 
 Model::Model() {
 }
-Model::Model(const std::vector<Triangle> &triangles, Material material, cl_uint triangle_index, cl_uint num_triangles) {
-	this->material = material;
+Model::Model(const std::vector<Triangle> &triangles, cl_uint triangle_index, cl_uint num_triangles) {
 	this->triangle_index = triangle_index;
 	this->num_triangles = num_triangles;
 
@@ -70,13 +67,12 @@ void Model::compute_bounding_box(const std::vector<Triangle> &triangles) {
 
 int Box::triangle_index = -1;
 
-Model Box::model(const Material &material, const glm::vec3 &position, const glm::vec3 &size) {
+Model Box::model(const glm::vec3 &position, const glm::vec3 &size) {
 	if (Box::triangle_index == -1) {
 		throw std::runtime_error("uninitialized box model, you forgot to call Box::create_triangle");
 	}
 
 	Model model;
-	model.material = material;
 	model.triangle_index = Box::triangle_index;
 	model.num_triangles = 12;
 	model.bounding_min = position - size * 0.5f;

@@ -1,7 +1,7 @@
-#include <iostream>
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <iostream>
 #include <random>
 #include <vector>
 
@@ -26,9 +26,9 @@
 #include <SDL2/SDL.h>
 
 #include "color.hpp"
+#include "parser.hpp"
 #include "shape.hpp"
 #include "tracer.hpp"
-#include "parser.hpp"
 
 #define WINDOW_WIDTH 960
 #define WINDOW_HEIGHT 540
@@ -105,24 +105,31 @@ int main(int argc, char **) {
 
 	std::vector<Shape> shapes;
 	std::vector<Triangle> triangles;
+	std::vector<Material> materials;
 
 	Box::create_triangle(triangles);
 
 	// std::unordered_map<fs::path, ModelPair> model_cache;
+	auto randcolor = []() { return color::from_RGB(rand() % 256, rand() % 256, rand() % 256); };
+	auto randf = []() { return (float)rand() / (float)RAND_MAX; };
 
-	// for (int i = 0; i < 25; i++) {
-	// 	float x = (float)(i % 5) / 4.0f;
-	// 	float y = (int)(i / 5) / 4.0f;
-	//
-	// 	Sphere sphere = Sphere(
-	// 		Material(color::white, i < 12 ? 1.0f : 0.0f, 1.0f, color::white, i < 12 ? 1.4f : 0.0f),
-	// 		{x * 80.0f, 10, y * 80.0f}, 7.0f
-	// 	);
-	// 	shapes.push_back(sphere);
-	// }
+	int sphere_material = materials.size();
+	materials.push_back(Material(randcolor(), randf(), randf(), randf(), randf(), 1.0f + randf()));
 
-	Plane ground_plane = Plane(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f), {0, 0, 0}, {0, 1, 0});
-	shapes.push_back(ground_plane);
+	for (int i = 0; i < 25; i++) {
+
+		float x = (float)(i % 5) * 20.0f;
+		float y = (int)(i / 5) * 20.0f;
+
+		Sphere sphere = Sphere({x, 15.0f, y}, 10.0f);
+		shapes.push_back({sphere_material, sphere});
+	}
+
+	int ground_material = materials.size();
+	materials.push_back(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f));
+
+	Plane ground_plane = Plane({0, 0, 0}, {0, 1, 0});
+	shapes.push_back({ground_material, ground_plane});
 
 	Camera camera = {{0.0f, 50.0f, 0.0f}, {0.974f, 0.811f, 0.0f}};
 
@@ -138,11 +145,11 @@ int main(int argc, char **) {
 	tracer.options.num_samples = 2;
 	tracer.options.num_bounces = 10;
 
-	tracer.scene_data.horizon_color = color::from_hex(0x91c8f2);
-	tracer.scene_data.zenith_color = color::from_hex(0x40aff9);
+	tracer.scene_data.horizon_color = color::from_hex(0x374F62);
+	tracer.scene_data.zenith_color = color::from_hex(0x11334A);
 	tracer.scene_data.ground_color = color::from_hex(0x777777);
 	tracer.scene_data.sun_focus = 25.0f;
-	tracer.scene_data.sun_color = color::from_hex(0xddffcc);
+	tracer.scene_data.sun_color = color::from_hex(0xffffd3);
 	tracer.scene_data.sun_intensity = 1.0f;
 	tracer.scene_data.sun_direction = VEC3TOCL(glm::normalize(glm::vec3(1.0, -1.0, 0.0)));
 
@@ -190,7 +197,8 @@ int main(int argc, char **) {
 					SDL_SetRelativeMouseMode(accepting_input ? SDL_TRUE : SDL_FALSE);
 				}
 
-				if (!accepting_input) break;
+				if (!accepting_input)
+					break;
 				pressed_keys[event.key.keysym.sym] = true;
 				break;
 			case SDL_KEYUP:
@@ -252,19 +260,17 @@ int main(int argc, char **) {
 				const char *names[] = {"Sphere", "Plane", "Model"};
 				const char *name = names[shape.type];
 
-				std::function<Material &()> properties[] = {
-					[&shape, &rerender]() -> Material & {
+				std::function<void()> properties[] = {
+					[&shape, &rerender]() {
 						auto &sphere = shape.shape.sphere;
 						rerender |= ImGui::DragFloat3("Position", &sphere.position.x, 0.1f);
 						rerender |= ImGui::DragFloat("Radius", &sphere.radius, 0.05f, 1.0f, 0.1f);
-						return sphere.material;
 					},
-					[&shape, &rerender]() -> Material & {
+					[&shape, &rerender]() {
 						auto &plane = shape.shape.plane;
 						rerender |= ImGui::DragFloat3("Position", &plane.position.x, 0.1f);
-						return plane.material;
 					},
-					[&triangles, &shape, &rerender]() -> Material & {
+					[&triangles, &shape, &rerender]() {
 						auto &model = shape.shape.model;
 						ImGui::Text("%d triangles", model.num_triangles);
 
@@ -284,12 +290,10 @@ int main(int argc, char **) {
 							model.compute_bounding_box(triangles);
 							rerender |= true;
 						}
-
-						return model.material;
 					}};
-				std::function<Material &()> inner = properties[shape.type];
+				std::function<void()> shape_properties = properties[shape.type];
 
-				auto drag_and_drop = [&shapes, &i, &name]() {
+				auto drag_and_drop = [&rerender, &shapes, &i, &name]() {
 					if (ImGui::BeginDragDropSource()) {
 						ImGui::SetDragDropPayload("SHAPE", &i, sizeof(i));
 						ImGui::Text("Swap with %s", name);
@@ -302,6 +306,14 @@ int main(int argc, char **) {
 							}
 							size_t j = *(size_t *)payload->Data;
 							std::swap(shapes[i], shapes[j]);
+						} else if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("MATERIAL")) {
+							if (payload->DataSize != sizeof(cl_int)) {
+								return;
+							}
+							cl_int material = *(cl_int *)payload->Data;
+
+							shapes[i].material = material;
+							rerender |= true;
 						}
 
 						ImGui::EndDragDropTarget();
@@ -323,48 +335,58 @@ int main(int argc, char **) {
 					ImGui::PopStyleVar();
 				};
 
-				if (ImGui::TreeNode(name)) {
-					drag_and_drop();
-					close_button();
+				bool opened = ImGui::TreeNode(name);
+				drag_and_drop();
+				close_button();
 
-					auto &material = inner();
+				if (opened) {
+					shape_properties();
 
-					if (ImGui::TreeNode("Material")) {
-						rerender |= ImGui::ColorEdit3("Color", &material.color.x);
-						rerender |= ImGui::SliderFloat("Smoothness", &material.smoothness, 0.0f, 1.0f);
-						rerender |= ImGui::SliderFloat("Metallic", &material.metallic, 0.0f, 1.0f);
-						rerender |= ImGui::SliderFloat("Specular", &material.specular, 0.0f, 1.0f);
-						rerender |= ImGui::ColorEdit3("Emission", &material.emission.x);
-						rerender |= ImGui::SliderFloat(
-							"Emission Strength", &material.emission_strength, 0.0f, 100.0f, "%.3f",
-							ImGuiSliderFlags_Logarithmic
-						);
-						rerender |= ImGui::SliderFloat("Transmittance", &material.transmittance, 0.0f, 1.0f);
-						if (material.transmittance > 0.0f) {
-							ImGui::PushItemWidth(-32.0f);
-							rerender |= ImGui::DragFloat("IOR", &material.refraction_index, 0.01f, 1.0f, 20.0f);
-							ImGui::PopItemWidth();
+					std::string name;
+					rerender |= ImGui::Combo(
+						"Material", &shape.material,
+						[](void *void_name, int index, const char **out) {
+							std::string &name = *(std::string *)void_name;
+							name = "Material" + std::to_string(index);
+							*out = name.data(); // hopefully it doesn't try to accumulate multiple results...
+							return true;
+						},
+						&name, materials.size()
+					);
+
+					if (ImGui::BeginDragDropTarget()) {
+						if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("MATERIAL")) {
+							if (payload->DataSize == sizeof(cl_int)) {
+								cl_int material = *(cl_int *)payload->Data;
+
+								shape.material = material;
+								rerender |= true;
+							}
 						}
 
-						ImGui::TreePop();
+						ImGui::EndDragDropTarget();
+
 					}
 
 					ImGui::TreePop();
-				} else {
-					drag_and_drop();
-					close_button();
-				}
+				} 
 
 				ImGui::PopID();
 			}
 
 			if (ImGui::Button("Add sphere")) {
-				shapes.push_back(Sphere(Material(), glm::vec3(0.0f), 10.0f));
+				if (materials.size() == 0) {
+					materials.push_back(Material());
+				}
+				shapes.push_back({0, Sphere(glm::vec3(0.0f), 10.0f)});
 				rerender |= true;
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Add box")) {
-				shapes.push_back(Box::model(Material(), glm::vec3(0.0f), glm::vec3(1.0f)));
+				if (materials.size() == 0) {
+					materials.push_back(Material());
+				}
+				shapes.push_back({0, Box::model(glm::vec3(0.0f), glm::vec3(1.0f))});
 				rerender |= true;
 			}
 			ImGui::SameLine();
@@ -373,9 +395,14 @@ int main(int argc, char **) {
 			}
 
 			if (ImGui::BeginPopup("model")) {
-				static enum { STL, OBJ } filetype;
-				ImGui::Text("Filetype"); ImGui::SameLine();
-				ImGui::RadioButton("STL", (int *)&filetype, STL); ImGui::SameLine();
+				static enum {
+					STL,
+					OBJ
+				} filetype;
+				ImGui::Text("Filetype");
+				ImGui::SameLine();
+				ImGui::RadioButton("STL", (int *)&filetype, STL);
+				ImGui::SameLine();
 				ImGui::RadioButton("OBJ", (int *)&filetype, OBJ);
 
 				static char filename[1024];
@@ -397,11 +424,13 @@ int main(int argc, char **) {
 					if (!indices.has_value()) {
 						error = true;
 					} else {
-						std::memset(filename, 0, 1024);
 						error = false;
 
-						auto model = Model(triangles, Material(), indices->first, indices->second);
-						shapes.push_back(model);
+						if (materials.size() == 0) {
+							materials.push_back(Material());
+						}
+						auto model = Model(triangles, indices->first, indices->second);
+						shapes.push_back({0, model});
 						rerender |= true;
 
 						ImGui::CloseCurrentPopup();
@@ -481,11 +510,76 @@ int main(int argc, char **) {
 		}
 		ImGui::Checkbox("Render", &render_raytracing);
 
+		ImGui::End();
+
+		if (ImGui::Begin("Materials")) {
+			for (cl_int i = 0; i < materials.size(); i++) {
+				std::string name = "Material" + std::to_string(i);
+
+				bool opened = ImGui::TreeNode(name.data());
+				if (ImGui::BeginDragDropSource()) {
+					ImGui::SetDragDropPayload("MATERIAL", &i, sizeof(i));
+					ImGui::Text("Set material to Material%d", i);
+					ImGui::EndDragDropSource();
+				}
+
+				// Close button
+				ImGui::SameLine();
+				// Right-align
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 10.0f);
+				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f)); // small button
+
+				if (ImGui::Button("X", ImVec2(10.0f, 0.0f))) {
+					materials.erase(materials.begin() + i);
+
+					// Avoid having no material
+					if (materials.size() == 0) {
+						materials.push_back(Material());
+					}
+
+					// Fix ordering
+					for (auto &shape : shapes) {
+						if (shape.material == i) {
+							shape.material = 0;
+						} else if (shape.material > i) {
+							shape.material -= 1;
+						}
+					}
+					i -= 1;
+
+					rerender |= true;
+				}
+
+				ImGui::PopStyleVar();
+
+				if (opened) {
+					auto &material = materials[i];
+
+					rerender |= ImGui::ColorEdit3("Color", &material.color.x);
+					rerender |= ImGui::SliderFloat("Smoothness", &material.smoothness, 0.0f, 1.0f);
+					rerender |= ImGui::SliderFloat("Metallic", &material.metallic, 0.0f, 1.0f);
+					rerender |= ImGui::SliderFloat("Specular", &material.specular, 0.0f, 1.0f);
+					rerender |= ImGui::ColorEdit3("Emission", &material.emission.x);
+					rerender |= ImGui::SliderFloat(
+						"Emission Strength", &material.emission_strength, 0.0f, 100.0f, "%.3f",
+						ImGuiSliderFlags_Logarithmic
+					);
+					rerender |= ImGui::SliderFloat("Transmittance", &material.transmittance, 0.0f, 1.0f);
+					if (material.transmittance > 0.0f) {
+						ImGui::PushItemWidth(-32.0f);
+						rerender |= ImGui::DragFloat("IOR", &material.refraction_index, 0.01f, 1.0f, 20.0f);
+						ImGui::PopItemWidth();
+					}
+
+					ImGui::TreePop();
+				}
+			}
+		}
+		ImGui::End();
+
 		if (rerender) {
 			time_not_moved = 1;
 		}
-
-		ImGui::End();
 
 		if (ImGui::Begin("Frame times")) {
 			ImGui::PlotLines(
@@ -538,7 +632,7 @@ int main(int argc, char **) {
 		// Handle ray tracing
 		if (time_not_moved == 1) {
 			tracer.clear_canvas();
-			tracer.update_scene(shapes, triangles);
+			tracer.update_scene(shapes, triangles, materials);
 		}
 
 		if (render_raytracing) {
@@ -551,9 +645,16 @@ int main(int argc, char **) {
 
 			tracer.render(time_not_moved, pixels);
 
+			int width, height;
+			SDL_GetWindowSizeInPixels(window, &width, &height);
+			int target_height = (int)(width * (1.0f / aspect_ratio));
+			int target_y = (height - target_height)/2;
+
 			// Render to screen
 			SDL_UpdateTexture(texture, NULL, pixels.data(), RENDER_WIDTH * 4);
-			SDL_RenderCopy(renderer, texture, NULL, NULL);
+
+			SDL_Rect dstrect = { .x = 0, .y = target_y, .w = width, .h = target_height };
+			SDL_RenderCopy(renderer, texture, NULL, &dstrect);
 		}
 
 		if (pressed_keys[SDLK_p]) {

@@ -27,13 +27,11 @@ typedef struct {
 } Material;
 
 typedef struct {
-	Material material;
 	float3 position;
 	float radius;
 } Sphere;
 
 typedef struct {
-	Material material;
 	float3 position;
 	float3 normal;
 } Plane;
@@ -44,13 +42,13 @@ typedef struct {
 } Triangle;
 
 typedef struct {
-	Material material;
 	uint triangle_index;
 	uint num_triangles;
 	float3 bounding_min;
 	float3 bounding_max;
 	float3 position;
 	float3 scale;
+	/// quaternion
 	float4 orientation;
 } Model;
 
@@ -62,6 +60,7 @@ typedef enum {
 
 typedef struct {
 	ShapeType type;
+	int material;
 	union {
 		Sphere sphere;
 		Plane plane;
@@ -98,6 +97,7 @@ typedef struct {
 	const SceneData *data;
 	__global const Shape *shapes;
 	__global const Triangle *triangles;
+	__global const Material *materials;
 } Scene;
 
 float4 matrix_by_vector(__generic const float4 *m, const float4 v) {
@@ -250,22 +250,23 @@ bool intersection_aabb(float3 bounds_min, float3 bounds_max, const Ray *ray, flo
 	return tmin < tmax;
 }
 
-__global const Material *closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhit) {
-	__global const Material *closest = NULL;
+/// Returns the material index of the closest intersection
+int closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhit) {
+	int closest = -1;
 	float tmin = INFINITY;
 
 	float3 inv_dir = 1.0f / ray->direction;
 
 	for (int i = 0; i < scene->data->num_shapes; i++) {
-		__global const Shape *shape = &scene->shapes[i];
+		__generic const Shape *shape = &scene->shapes[i];
 		if (shape->type == SHAPE_SPHERE) {
-			__global const Sphere *sphere = &shape->shape.sphere;
+			__generic const Sphere *sphere = &shape->shape.sphere;
 
 			float t_i;
 			if (intersect_sphere(sphere, ray, &t_i)) {
 				if (t_i < tmin) {
 					tmin = t_i;
-					closest = &sphere->material;
+					closest = shape->material;
 
 					if (rayhit != NULL) {
 						rayhit->position = ray->origin + ray->direction * tmin;
@@ -276,7 +277,7 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 				}
 			}
 		} else if (shape->type == SHAPE_MODEL) {
-			__global const Model *model = &shape->shape.model;
+			__generic const Model *model = &shape->shape.model;
 			// Test bounding box first
 			if (!intersection_aabb(model->bounding_min, model->bounding_max, ray, inv_dir, tmin)) {
 				continue;
@@ -294,7 +295,7 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 				if (intersect_triangle(&triangle, ray, &t_i)) {
 					if (t_i < tmin) {
 						tmin = t_i;
-						closest = &model->material;
+						closest = shape->material;
 
 						if (rayhit != NULL) {
 							rayhit->normal = triangle.normal;
@@ -305,13 +306,13 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 				}
 			}
 		} else if (shape->type == SHAPE_PLANE) {
-			__global const Plane *plane = &shape->shape.plane;
+			__generic const Plane *plane = &shape->shape.plane;
 
 			float t_i;
 			if (intersect_plane(plane, ray, &t_i)) {
 				if (t_i < tmin) {
 					tmin = t_i;
-					closest = &plane->material;
+					closest = shape->material;
 
 					if (rayhit != NULL) {
 						rayhit->normal = plane->normal;
@@ -324,11 +325,12 @@ __global const Material *closest_intersection(const Scene *scene, const Ray *ray
 	}
 
 	if (tmin == FLT_MAX)
-		return NULL;
+		return -1;
 
 	if (rayhit != NULL) {
 		rayhit->normal *= rayhit->front ? 1.0f : -1.0f; // Reflect normal to always face the camera
 	}
+
 	return closest;
 }
 
@@ -355,9 +357,10 @@ float3 trace(int num_bounces, const Scene *scene, Ray *camray, uint seed) {
 	Intersection rayhit;
 
 	for (int i = 0; i < num_bounces; i++) {
-		__global const Material *material = closest_intersection(scene, &ray, &rayhit);
+		int material_index = closest_intersection(scene, &ray, &rayhit);
 
-		if (material != NULL) {
+		if (material_index >= 0) {
+			__generic const Material *material = &scene->materials[material_index];
 			color += mask * material->emission * material->emission_strength;
 
 			if (i == num_bounces - 1)
@@ -431,11 +434,11 @@ float3 aces(float3 x) {
 
 __kernel void render(
 	const RenderData data, const SceneData sceneData, __global float3 *output, __global const Shape *shapes,
-	__global const Triangle *triangles
+	__global const Triangle *triangles, __global const Material *materials
 ) {
 	const uint id = get_global_id(0);
 
-	Scene scene = {.data = &sceneData, .shapes = shapes, .triangles = triangles};
+	Scene scene = {.data = &sceneData, .shapes = shapes, .triangles = triangles, .materials = materials};
 	float2 windowPos = (float2)(id % data.width, (uint)(id / data.width)); // Raster space coordinates
 
 	float3 color = (float3)(0.f);

@@ -38,6 +38,7 @@ class Tracer {
 
 	compute::buffer buffer_shapes;
 	compute::buffer buffer_triangles;
+	compute::buffer buffer_materials;
 
   public:
     struct RenderData {
@@ -74,7 +75,7 @@ class Tracer {
 
     Tracer(const int width, const int height);
 
-    void update_scene(const std::vector<Shape> &shapes, const std::vector<Triangle> &triangles);
+    void update_scene(const std::vector<Shape> &shapes, const std::vector<Triangle> &triangles, const std::vector<Material> &materials);
 
     void clear_canvas();
     void render(cl_uint ticks_stopped, std::vector<uint8_t> &output);
