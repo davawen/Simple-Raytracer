@@ -32,13 +32,27 @@ struct Plane {
 };
 
 struct Triangle {
-	alignas(cl_float3) glm::vec3 normal;
 	struct Vertex {
-		alignas(cl_float3) glm::vec3 p;
-	} vertices[3];
+		alignas(cl_float3) glm::vec3 normal;
+		alignas(cl_float3) glm::vec3 pos;
+	};
 
+	union {
+		struct {
+			Vertex v0;
+			Vertex v1;
+			Vertex v2;
+		};
+		Vertex vertices[3];
+	};
+
+	/// Initialize every field to 0
 	Triangle();
-	Triangle(const glm::vec3 &normal, const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2);
+
+	/// Constuct a flat shaded triangle
+	Triangle(glm::vec3 normal, glm::vec3 pos0, glm::vec3 pos1, glm::vec3 pos2);
+
+	Triangle(Vertex v0, Vertex v1, Vertex v2);
 };
 
 /// Collection of triangles

@@ -11,17 +11,24 @@ Plane::Plane(const glm::vec3 &position, const glm::vec3 &normal) {
 }
 
 Triangle::Triangle() {
-	this->normal = glm::vec3(0.0f);
-	this->vertices[0].p = glm::vec3(0.0f);
-	this->vertices[1].p = glm::vec3(0.0f);
-	this->vertices[2].p = glm::vec3(0.0f);
+	for (int i = 0; i < 3; i++) {
+		vertices[i] = { .normal = glm::vec3(0.0f), .pos = glm::vec3(0.0f) };
+	}
 }
 
-Triangle::Triangle(const glm::vec3 &normal, const glm::vec3 &v0, const glm::vec3 &v1, const glm::vec3 &v2) {
-	this->normal = normal;
-	this->vertices[0].p = v0;
-	this->vertices[1].p = v1;
-	this->vertices[2].p = v2;
+Triangle::Triangle(glm::vec3 normal, glm::vec3 v0, glm::vec3 v1, glm::vec3 v2) {
+	for(int i = 0; i < 3; i++) {
+		vertices[i].normal = normal;
+	}
+	this->v0.pos = v0;
+	this->v1.pos = v1;
+	this->v2.pos = v2;
+}
+
+Triangle::Triangle(Vertex v0, Vertex v1, Vertex v2) {
+	this->v0 = v0;
+	this->v1 = v1;
+	this->v2 = v2;
 }
 
 Model::Model() {
@@ -44,7 +51,7 @@ void Model::compute_bounding_box(const std::vector<Triangle> &triangles) {
 		auto &triangle = triangles[triangle_index + i];
 
 		for (uint j = 0; j < 3; j++) {
-			auto vertex = glm::rotate(orientation, triangle.vertices[j].p * scale) + position;
+			auto vertex = glm::rotate(orientation, triangle.vertices[j].pos * scale) + position;
 			bounding_min = glm::min(bounding_min, vertex);
 			bounding_max = glm::max(bounding_max, vertex);
 		}

@@ -38,7 +38,18 @@ typedef struct {
 
 typedef struct {
 	float3 normal;
-	float3 vertices[3];
+	float3 pos;
+} Vertex;
+
+typedef struct {
+	union {
+		struct {
+			Vertex v0;
+			Vertex v1;
+			Vertex v2;
+		};
+		Vertex vertices[3];
+	};
 } Triangle;
 
 typedef struct {
@@ -72,7 +83,10 @@ typedef struct {
 	int width, height;
 	int num_samples;
 	int num_bounces;
-	float aspect_ratio, fov_scale;
+	float aspect_ratio;
+	float fov_scale;
+	/// For some reason, open cl refuses bools in kernel parameters?
+	char show_normals;
 
 	float4 camera_to_world[4];
 
@@ -82,14 +96,14 @@ typedef struct {
 
 typedef struct {
 	int num_shapes;
+	float sun_focus;
+	float sun_intensity;
 
 	float3 horizon_color;
 	float3 zenith_color;
 	float3 ground_color;
 
-	float sun_focus;
 	float3 sun_color;
-	float sun_intensity;
 	float3 sun_direction;
 } SceneData;
 
@@ -201,12 +215,32 @@ bool intersect_plane(__generic const Plane *plane, const Ray *ray, float *t) {
 	return true;
 }
 
+float3 barycentric_weights(__generic Triangle *triangle, float3 p) {
+	float3 v0 = triangle->v1.pos - triangle->v0.pos;
+	float3 v1 = triangle->v2.pos - triangle->v0.pos;
+	float3 v2 = p - triangle->v0.pos;
+
+    float d00 = dot(v0, v0);
+    float d01 = dot(v0, v1);
+    float d11 = dot(v1, v1);
+    float d20 = dot(v2, v0);
+    float d21 = dot(v2, v1);
+    float denom = d00 * d11 - d01 * d01;
+
+    float w0 = (d11 * d20 - d01 * d21) / denom;
+    float w1 = (d00 * d21 - d01 * d20) / denom;
+    float w2 = 1.0f - w0 - w1;
+
+	// don't ask me WHY but I have to shift the weights
+	return (float3)(w2, w0, w1);
+}
+
 float intersect_triangle(__generic Triangle *triangle, const Ray *ray, float *t) {
 	float3 edge1, edge2, h, s, q;
 	float a, f, u, v;
 
-	edge1 = triangle->vertices[1] - triangle->vertices[0];
-	edge2 = triangle->vertices[2] - triangle->vertices[0];
+	edge1 = triangle->v1.pos - triangle->v0.pos;
+	edge2 = triangle->v2.pos - triangle->v0.pos;
 
 	h = cross(ray->direction, edge2);
 	a = dot(edge1, h);
@@ -215,7 +249,7 @@ float intersect_triangle(__generic Triangle *triangle, const Ray *ray, float *t)
 		return false;
 
 	f = 1.f / a;
-	s = ray->origin - triangle->vertices[0];
+	s = ray->origin - triangle->v0.pos;
 	u = f * dot(s, h);
 
 	if (u < 0.f || u > 1.f)
@@ -286,9 +320,8 @@ int closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhi
 			// Test every triangle in the model
 			for (size_t i = 0; i < model->num_triangles; i++) {
 				Triangle triangle = scene->triangles[model->triangle_index + i];
-				triangle.normal = rotate(triangle.normal, model->orientation);
 				for (size_t j = 0; j <= 2; j++) {
-					triangle.vertices[j] = transform(triangle.vertices[j], model->position, model->scale, model->orientation);
+					triangle.vertices[j].pos = transform(triangle.vertices[j].pos, model->position, model->scale, model->orientation);
 				}
 
 				float t_i;
@@ -298,9 +331,17 @@ int closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhi
 						closest = shape->material;
 
 						if (rayhit != NULL) {
-							rayhit->normal = triangle.normal;
-							rayhit->front = dot(rayhit->normal, ray->direction) < 0.0f;
 							rayhit->position = ray->origin + ray->direction * tmin;
+
+							// Smooth shading
+							float3 weights = barycentric_weights(&triangle, rayhit->position);
+							rayhit->normal = normalize(triangle.v0.normal*weights.x + triangle.v1.normal*weights.y + triangle.v2.normal*weights.z);
+							rayhit->normal = rotate(rayhit->normal, model->orientation);
+
+							// Assume couter-clockwise vertex order (-Z main axis)
+							float3 computed_normal = cross(triangle.v1.pos - triangle.v0.pos, triangle.v2.pos - triangle.v0.pos);
+
+							rayhit->front = dot(computed_normal, ray->direction) < 0.0f;
 						}
 					}
 				}
@@ -349,21 +390,26 @@ float3 sky_box(Ray ray, const Scene *scene) {
 	return mix(scene->data->ground_color, sky_gradient, ground_to_sky) + sun * sun_mask;
 }
 
-float3 trace(int num_bounces, const Scene *scene, Ray *camray, uint seed) {
+float3 trace(const RenderData *render, const Scene *scene, Ray *camray, uint seed) {
 	float3 color = (float3)(0.f);
 	float3 mask = (float3)(1.f);
 
 	Ray ray = *camray;
 	Intersection rayhit;
 
-	for (int i = 0; i < num_bounces; i++) {
+	for (int i = 0; i < render->num_bounces; i++) {
 		int material_index = closest_intersection(scene, &ray, &rayhit);
 
 		if (material_index >= 0) {
+			if (render->show_normals) {
+				color = rayhit.normal*0.5f + 0.5f;
+				break;
+			}
+
 			__generic const Material *material = &scene->materials[material_index];
 			color += mask * material->emission * material->emission_strength;
 
-			if (i == num_bounces - 1)
+			if (i == render->num_bounces - 1)
 				break; // Don't compute new bounce if it's the last one
 
 			ray.origin = rayhit.position;
@@ -411,7 +457,6 @@ float3 trace(int num_bounces, const Scene *scene, Ray *camray, uint seed) {
 
 			ray.direction = normalize(ray.direction);
 			ray.origin += rayhit.normal * sign(dot(rayhit.normal, ray.direction)) * 0.001f; // avoid shadow acne
-
 		} else { // No collision -- Sky
 			mask *= sky_box(ray, scene);
 			color += mask;
@@ -465,7 +510,7 @@ __kernel void render(
 		// Only normalize 3d components
 		ray.direction = normalize(matrix_by_vector(data.camera_to_world, (float4)(cameraPos.xyz, 0)).xyz);
 
-		color += trace(data.num_bounces, &scene, &ray, seed /* + (data.time<<3)*/);
+		color += trace(&data, &scene, &ray, seed /* + (data.time<<3)*/);
 	}
 	color /= data.num_samples;
 

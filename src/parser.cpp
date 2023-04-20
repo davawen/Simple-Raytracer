@@ -1,4 +1,5 @@
 #include "parser.hpp"
+#include <glm/gtx/string_cast.hpp>
 
 void save_ppm(const fs::path &filename, std::vector<uint8_t> &pixels, int width, int height) {
 	std::ofstream file;
@@ -59,10 +60,8 @@ std::optional<ModelPair> load_obj_model(const std::filesystem::path filename, st
 	}
 
 	struct Face {
-		int normal;
-		int v1;
-		int v2;
-		int v3;
+		int vertices[3];
+		int normals[3];
 	};
 
 	std::vector<glm::vec3> vertices;
@@ -100,9 +99,9 @@ std::optional<ModelPair> load_obj_model(const std::filesystem::path filename, st
 					}
 				}
 			};
-			extract_index(face.v1, face.normal);
-			extract_index(face.v2, face.normal);
-			extract_index(face.v3, face.normal);
+			extract_index(face.vertices[0], face.normals[0]);
+			extract_index(face.vertices[1], face.normals[1]);
+			extract_index(face.vertices[2], face.normals[2]);
 
 			faces.push_back(face);
 		} else if (mode == "s") {
@@ -120,12 +119,16 @@ std::optional<ModelPair> load_obj_model(const std::filesystem::path filename, st
 			index -= 1; // indices are 1-based
 		};
 
-		adjust(face.normal, normals.size());
-		adjust(face.v1, vertices.size());
-		adjust(face.v2, vertices.size());
-		adjust(face.v3, vertices.size());
+		Triangle triangle;
+		for(int i = 0; i < 3; i++) {
+			adjust(face.vertices[i], vertices.size());
+			adjust(face.normals[i], normals.size());
 
-		triangles.push_back(Triangle(normals[face.normal], vertices[face.v1], vertices[face.v2], vertices[face.v3]));
+			triangle.vertices[i].pos = vertices[face.vertices[i]];
+			triangle.vertices[i].normal = normals[face.normals[i]];
+		}
+
+		triangles.push_back(triangle);
 	}
 
 	return {{ index, len }};

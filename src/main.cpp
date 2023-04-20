@@ -114,16 +114,17 @@ int main(int argc, char **) {
 	auto randf = []() { return (float)rand() / (float)RAND_MAX; };
 
 	int sphere_material = materials.size();
-	materials.push_back(Material(randcolor(), randf(), randf(), randf(), randf(), 1.0f + randf()));
+	materials.push_back(Material());
+	// materials.push_back(Material(randcolor(), randf(), randf(), randf(), randf(), 1.0f + randf()));
 
-	for (int i = 0; i < 25; i++) {
-
-		float x = (float)(i % 5) * 20.0f;
-		float y = (int)(i / 5) * 20.0f;
-
-		Sphere sphere = Sphere({x, 15.0f, y}, 10.0f);
-		shapes.push_back({sphere_material, sphere});
-	}
+	// for (int i = 0; i < 25; i++) {
+	//
+	// 	float x = (float)(i % 5) * 20.0f;
+	// 	float y = (int)(i / 5) * 20.0f;
+	//
+	// 	Sphere sphere = Sphere({x, 15.0f, y}, 10.0f);
+	// 	shapes.push_back({sphere_material, sphere});
+	// }
 
 	int ground_material = materials.size();
 	materials.push_back(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f));
@@ -144,6 +145,7 @@ int main(int argc, char **) {
 
 	tracer.options.num_samples = 2;
 	tracer.options.num_bounces = 10;
+	tracer.options.show_normals = false;
 
 	tracer.scene_data.horizon_color = color::from_hex(0x374F62);
 	tracer.scene_data.zenith_color = color::from_hex(0x11334A);
@@ -490,6 +492,7 @@ int main(int argc, char **) {
 		if (ImGui::TreeNode("Render Parameters")) {
 			ImGui::SliderInt("Samples", &tracer.options.num_samples, 1, 32);
 			rerender |= ImGui::SliderInt("Bounces", &tracer.options.num_bounces, 1, 32);
+			rerender |= ImGui::Checkbox("Show normals", &tracer.options.show_normals);
 
 			ImGui::Checkbox("Limit FPS", &limit_fps);
 			if (limit_fps) {

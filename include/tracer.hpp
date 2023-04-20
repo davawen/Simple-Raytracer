@@ -45,7 +45,9 @@ class Tracer {
         cl_int width, height;
         cl_int num_samples;
         cl_int num_bounces;
-        cl_float aspect_ratio, fov_scale;
+        cl_float aspect_ratio;
+		cl_float fov_scale;
+		bool show_normals;
 
 		alignas(cl_float4) glm::mat4 camera_to_world;
 
@@ -62,14 +64,14 @@ class Tracer {
 
     struct SceneData {
         cl_int num_shapes;
+		cl_float sun_focus;
+		cl_float sun_intensity;
 
 		alignas(cl_float3) Color horizon_color;
 		alignas(cl_float3) Color zenith_color;
 		alignas(cl_float3) Color ground_color;
-		alignas(cl_float3) cl_float sun_focus;
 		alignas(cl_float3) Color sun_color;
 
-		alignas(cl_float3) cl_float sun_intensity;
         cl_float3 sun_direction;
     } scene_data;
 
