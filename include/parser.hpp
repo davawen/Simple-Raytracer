@@ -11,7 +11,7 @@
 
 namespace fs = std::filesystem;
 
-void save_ppm(const fs::path &filename, std::vector<uint8_t> &pixels, int width, int height);
+void save_ppm(const fs::path &filename, const std::vector<uint8_t> &pixels, int width, int height);
 
 using ModelPair = std::pair<uint, uint>;
 

@@ -1,14 +1,14 @@
 #include "parser.hpp"
 #include <glm/gtx/string_cast.hpp>
 
-void save_ppm(const fs::path &filename, std::vector<uint8_t> &pixels, int width, int height) {
+void save_ppm(const fs::path &filename, const std::vector<uint8_t> &pixels, int width, int height) {
 	std::ofstream file;
 	file.open(filename, std::ios::binary | std::ios::out);
 	file << "P6 ";
 	file << std::to_string(width) << ' ' << std::to_string(height) << " 255\n";
 
 	for (size_t i = 0; i < pixels.size(); i += 4) {
-		uint8_t *p = &pixels[i]; // ARGB
+		const uint8_t *p = &pixels[i]; // ARGB
 
 		file.write((char *)p + 1, 3);
 	}

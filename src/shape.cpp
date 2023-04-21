@@ -12,12 +12,12 @@ Plane::Plane(const glm::vec3 &position, const glm::vec3 &normal) {
 
 Triangle::Triangle() {
 	for (int i = 0; i < 3; i++) {
-		vertices[i] = { .normal = glm::vec3(0.0f), .pos = glm::vec3(0.0f) };
+		vertices[i] = {.normal = glm::vec3(0.0f), .pos = glm::vec3(0.0f)};
 	}
 }
 
 Triangle::Triangle(glm::vec3 normal, glm::vec3 v0, glm::vec3 v1, glm::vec3 v2) {
-	for(int i = 0; i < 3; i++) {
+	for (int i = 0; i < 3; i++) {
 		vertices[i].normal = normal;
 	}
 	this->v0.pos = v0;
@@ -101,18 +101,12 @@ void Box::create_triangle(std::vector<Triangle> &triangles) {
 	const glm::vec3 minCorner = -glm::vec3(0.5f);
 	const glm::vec3 maxCorner = glm::vec3(0.5f);
 
-	const glm::vec3 vertices[8] = {
-		{minCorner},
-		{maxCorner.x, minCorner.yz()},
-		{minCorner.x, maxCorner.y, minCorner.z},
-		{maxCorner.xy(), minCorner.z},
-		{minCorner.xy(), maxCorner.z},
-		{maxCorner.x, minCorner.y, maxCorner.z},
-		{minCorner.x, maxCorner.y, maxCorner.z},
-		{maxCorner}};
+	const glm::vec3 vertices[8] = {{-1.0f, -1.0f, 1.0f}, {-1.0f, 1.0f, 1.0f}, {-1.0f, -1.0f, -1.0f},
+	                               {-1.0f, 1.0f, -1.0f}, {1.0f, -1.0f, 1.0f}, {1.0f, 1.0f, 1.0f},
+	                               {1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, -1.0f}};
 
-	const int table[12][3] = {{0, 1, 3}, {0, 2, 3}, {0, 4, 6}, {0, 2, 6}, {0, 4, 5}, {0, 1, 5},
-	                          {4, 5, 7}, {4, 6, 7}, {1, 5, 7}, {1, 3, 7}, {2, 6, 7}, {2, 3, 7}};
+	const int table[12][3] = {{1, 2, 0}, {3, 6, 2}, {7, 4, 6}, {5, 0, 4}, {6, 0, 2}, {3, 5, 7},
+	                          {1, 3, 2}, {3, 7, 6}, {7, 5, 4}, {5, 1, 0}, {6, 4, 0}, {3, 1, 5}};
 
 	Box::triangle_index = triangles.size();
 	for (size_t i = 0; i < 12; i++) {
@@ -123,7 +117,7 @@ void Box::create_triangle(std::vector<Triangle> &triangles) {
 		glm::vec3 A = v2 - v1;
 		glm::vec3 B = v3 - v1;
 
-		glm::vec3 normal = {A.y * B.z - A.z * B.y, A.z * B.x - A.x * B.z, A.x * B.y - A.y * B.x};
+		glm::vec3 normal = glm::cross(A, B);
 		normal *= glm::dot(v1, normal) > 0.0f ? 1.0f : -1.0f; // flip if pointing towards the center of the cube
 
 		triangles.push_back(Triangle(glm::normalize(normal), v1, v2, v3));

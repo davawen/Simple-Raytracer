@@ -29,44 +29,14 @@
 #include "parser.hpp"
 #include "shape.hpp"
 #include "tracer.hpp"
+#include "interface.hpp"
+#include "helper.hpp"
 
 #define WINDOW_WIDTH 960
 #define WINDOW_HEIGHT 540
 
 #define RENDER_WIDTH (WINDOW_WIDTH)
 #define RENDER_HEIGHT (WINDOW_HEIGHT)
-
-struct Camera {
-	glm::vec3 position;
-	glm::vec3 rotation;
-};
-
-glm::mat4 view_matrix(const Camera &camera) {
-	glm::mat4 view = glm::translate(glm::mat4(1.f), camera.position);
-	view *= glm::eulerAngleYZX(camera.rotation.y, camera.rotation.z, camera.rotation.x);
-
-	return view;
-}
-
-glm::vec3 quaternion_to_eulerZYX(const glm::quat &q) {
-	glm::vec3 a;
-	// roll
-	double sinr_cosp = 2 * (q.w * q.x + q.y * q.z);
-	double cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y);
-	a.x = atan2(sinr_cosp, cosr_cosp);
-
-	// pitch
-	double sinp = std::sqrt(1 + 2 * (q.w * q.y - q.x * q.z));
-	double cosp = std::sqrt(1 - 2 * (q.w * q.y - q.x * q.z));
-	a.y = 2.0f * atan2(sinp, cosp) - M_PI / 2;
-
-	// yaw
-	double siny_cosp = 2 * (q.w * q.z + q.x * q.y);
-	double cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
-	a.z = atan2(siny_cosp, cosy_cosp);
-
-	return a;
-}
 
 double now() {
 	return std::chrono::high_resolution_clock::now().time_since_epoch().count() / 1'000'000'000.0;
@@ -105,7 +75,10 @@ int main(int argc, char **) {
 
 	std::vector<Shape> shapes;
 	std::vector<Triangle> triangles;
-	std::vector<Material> materials;
+
+	MaterialHelper materials;
+
+	materials.push(Material(), "Material0");
 
 	Box::create_triangle(triangles);
 
@@ -113,8 +86,6 @@ int main(int argc, char **) {
 	auto randcolor = []() { return color::from_RGB(rand() % 256, rand() % 256, rand() % 256); };
 	auto randf = []() { return (float)rand() / (float)RAND_MAX; };
 
-	int sphere_material = materials.size();
-	materials.push_back(Material());
 	// materials.push_back(Material(randcolor(), randf(), randf(), randf(), randf(), 1.0f + randf()));
 
 	// for (int i = 0; i < 25; i++) {
@@ -126,11 +97,10 @@ int main(int argc, char **) {
 	// 	shapes.push_back({sphere_material, sphere});
 	// }
 
-	int ground_material = materials.size();
-	materials.push_back(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f));
+	materials.push(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f), "Plane material");
 
 	Plane ground_plane = Plane({0, 0, 0}, {0, 1, 0});
-	shapes.push_back({ground_material, ground_plane});
+	shapes.push_back({materials.last_index(), ground_plane});
 
 	Camera camera = {{0.0f, 50.0f, 0.0f}, {0.974f, 0.811f, 0.0f}};
 
@@ -250,370 +220,32 @@ int main(int argc, char **) {
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
 
-		ImGui::Begin("Parameters");
-
 		bool rerender = false;
 
-		if (ImGui::TreeNode("Shapes")) {
-			for (size_t i = 0; i < shapes.size(); i++) {
-				auto &shape = shapes[i];
-				ImGui::PushID(i);
+		if (ImGui::Begin("Parameters")) {
+			rerender |= interface::shape_parameters(shapes, triangles, materials);
+			rerender |= interface::camera_parameters(camera, movement_speed, look_around_speed, pixels, glm::ivec2(WINDOW_WIDTH, WINDOW_HEIGHT));
+			rerender |= interface::scene_parameters(tracer.scene_data);
+			rerender |= interface::render_parameters(tracer.options);
 
-				const char *names[] = {"Sphere", "Plane", "Model"};
-				const char *name = names[shape.type];
-
-				std::function<void()> properties[] = {
-					[&shape, &rerender]() {
-						auto &sphere = shape.shape.sphere;
-						rerender |= ImGui::DragFloat3("Position", &sphere.position.x, 0.1f);
-						rerender |= ImGui::DragFloat("Radius", &sphere.radius, 0.05f, 1.0f, 0.1f);
-					},
-					[&shape, &rerender]() {
-						auto &plane = shape.shape.plane;
-						rerender |= ImGui::DragFloat3("Position", &plane.position.x, 0.1f);
-					},
-					[&triangles, &shape, &rerender]() {
-						auto &model = shape.shape.model;
-						ImGui::Text("%d triangles", model.num_triangles);
-
-						glm::vec3 angles = quaternion_to_eulerZYX(model.orientation);
-						angles = glm::degrees(angles);
-
-						bool moved = false;
-						moved |= ImGui::DragFloat3("Position", &model.position.x, 0.1f);
-						moved |= ImGui::DragFloat3("Size", &model.scale.x, 0.1f);
-						if (ImGui::SliderFloat3("Rotation", &angles.x, -180.0f, 180.0f, "%.1f deg")) {
-							model.orientation = glm::quat(glm::radians(angles));
-							// glm::eulerAngleZYX
-							moved |= true;
-						}
-
-						if (moved) {
-							model.compute_bounding_box(triangles);
-							rerender |= true;
-						}
-					}};
-				std::function<void()> shape_properties = properties[shape.type];
-
-				auto drag_and_drop = [&rerender, &shapes, &i, &name]() {
-					if (ImGui::BeginDragDropSource()) {
-						ImGui::SetDragDropPayload("SHAPE", &i, sizeof(i));
-						ImGui::Text("Swap with %s", name);
-						ImGui::EndDragDropSource();
-					}
-					if (ImGui::BeginDragDropTarget()) {
-						if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("SHAPE")) {
-							if (payload->DataSize != sizeof(i)) {
-								return;
-							}
-							size_t j = *(size_t *)payload->Data;
-							std::swap(shapes[i], shapes[j]);
-						} else if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("MATERIAL")) {
-							if (payload->DataSize != sizeof(cl_int)) {
-								return;
-							}
-							cl_int material = *(cl_int *)payload->Data;
-
-							shapes[i].material = material;
-							rerender |= true;
-						}
-
-						ImGui::EndDragDropTarget();
-					}
-				};
-
-				auto close_button = [&shapes, &i, &rerender]() {
-					ImGui::SameLine();
-					// Right-align
-					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 10.0f);
-					ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f)); // small button
-
-					if (ImGui::Button("X", ImVec2(10.0f, 0.0f))) {
-						shapes.erase(shapes.begin() + i);
-						i -= 1;
-						rerender |= true;
-					}
-
-					ImGui::PopStyleVar();
-				};
-
-				bool opened = ImGui::TreeNode(name);
-				drag_and_drop();
-				close_button();
-
-				if (opened) {
-					shape_properties();
-
-					std::string name;
-					rerender |= ImGui::Combo(
-						"Material", &shape.material,
-						[](void *void_name, int index, const char **out) {
-							std::string &name = *(std::string *)void_name;
-							name = "Material" + std::to_string(index);
-							*out = name.data(); // hopefully it doesn't try to accumulate multiple results...
-							return true;
-						},
-						&name, materials.size()
-					);
-
-					if (ImGui::BeginDragDropTarget()) {
-						if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("MATERIAL")) {
-							if (payload->DataSize == sizeof(cl_int)) {
-								cl_int material = *(cl_int *)payload->Data;
-
-								shape.material = material;
-								rerender |= true;
-							}
-						}
-
-						ImGui::EndDragDropTarget();
-
-					}
-
-					ImGui::TreePop();
-				} 
-
-				ImGui::PopID();
+			ImGui::Checkbox("Show demo window", &demo_window);
+			if (demo_window) {
+				ImGui::ShowDemoWindow();
 			}
 
-			if (ImGui::Button("Add sphere")) {
-				if (materials.size() == 0) {
-					materials.push_back(Material());
-				}
-				shapes.push_back({0, Sphere(glm::vec3(0.0f), 10.0f)});
-				rerender |= true;
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Add box")) {
-				if (materials.size() == 0) {
-					materials.push_back(Material());
-				}
-				shapes.push_back({0, Box::model(glm::vec3(0.0f), glm::vec3(1.0f))});
-				rerender |= true;
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Add model")) {
-				ImGui::OpenPopup("model");
-			}
-
-			if (ImGui::BeginPopup("model")) {
-				static enum {
-					STL,
-					OBJ
-				} filetype;
-				ImGui::Text("Filetype");
-				ImGui::SameLine();
-				ImGui::RadioButton("STL", (int *)&filetype, STL);
-				ImGui::SameLine();
-				ImGui::RadioButton("OBJ", (int *)&filetype, OBJ);
-
-				static char filename[1024];
-				static bool error = false;
-				ImGui::InputText("filename", filename, 1024);
-
-				if (error) {
-					ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.4f, 1.0f), "Inexistant file");
-				}
-
-				if (ImGui::Button("Add to scene")) {
-					std::optional<ModelPair> indices;
-					if (filetype == STL) {
-						indices = load_stl_model(filename, triangles);
-					} else if (filetype == OBJ) {
-						indices = load_obj_model(filename, triangles);
-					}
-
-					if (!indices.has_value()) {
-						error = true;
-					} else {
-						error = false;
-
-						if (materials.size() == 0) {
-							materials.push_back(Material());
-						}
-						auto model = Model(triangles, indices->first, indices->second);
-						shapes.push_back({0, model});
-						rerender |= true;
-
-						ImGui::CloseCurrentPopup();
-					}
-				}
-
-				ImGui::EndPopup();
-			}
-
-			ImGui::TreePop();
-		}
-
-		if (ImGui::TreeNode("Camera")) {
-			rerender |= ImGui::DragFloat3("Position", &camera.position.x, 0.1f);
-			rerender |= ImGui::DragFloat3("Orientation", &camera.rotation.x, 0.1f);
-			ImGui::DragFloat("Movement Speed", &movement_speed, 0.1f, 1.0f, 50.0f);
-			ImGui::DragFloat("Look Speed", &look_around_speed, 0.1f, 1.0f, 50.0f);
-
-			if (ImGui::Button("Screenshot")) {
-				ImGui::OpenPopup("screenshot");
-			}
-
-			if (ImGui::BeginPopup("screenshot")) {
-				static char filename[1024];
-				ImGui::InputText("Save to", filename, 1024);
-
-				if (ImGui::Button("Save")) {
-					save_ppm(filename, pixels, WINDOW_WIDTH, WINDOW_HEIGHT);
-					ImGui::CloseCurrentPopup();
-				}
-
-				ImGui::EndPopup();
-			}
-
-			ImGui::TreePop();
-		}
-
-		if (ImGui::TreeNode("Scene Parameters")) {
-			rerender |= ImGui::ColorEdit3("Horizon color", (float *)&tracer.scene_data.horizon_color);
-			rerender |= ImGui::ColorEdit3("Zenith color", (float *)&tracer.scene_data.zenith_color);
-			rerender |= ImGui::ColorEdit3("Ground color", (float *)&tracer.scene_data.ground_color);
-
-			rerender |= ImGui::SliderFloat("Sun focus", &tracer.scene_data.sun_focus, 0.0f, 100.0f);
-			rerender |= ImGui::ColorEdit3("Sun color", (float *)&tracer.scene_data.sun_color);
-			rerender |= ImGui::SliderFloat(
-				"Sun intensity", &tracer.scene_data.sun_intensity, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic
-			);
-			auto &dir = tracer.scene_data.sun_direction;
-			if (ImGui::DragFloat3("Sun direction", (float *)&dir)) {
-				auto glm_dir = glm::normalize(glm::vec3(dir.x, dir.y, dir.z));
-				dir = VEC3TOCL(glm_dir);
+			if (ImGui::Button("Rerender")) {
 				rerender = true;
 			}
-			ImGui::TreePop();
-		}
-
-		if (ImGui::TreeNode("Render Parameters")) {
-			ImGui::SliderInt("Samples", &tracer.options.num_samples, 1, 32);
-			rerender |= ImGui::SliderInt("Bounces", &tracer.options.num_bounces, 1, 32);
-			rerender |= ImGui::Checkbox("Show normals", &tracer.options.show_normals);
-
-			ImGui::Checkbox("Limit FPS", &limit_fps);
-			if (limit_fps) {
-				ImGui::SameLine();
-				ImGui::SliderInt("Limit", &fps_limit, 10, 240);
-			}
-
-			ImGui::TreePop();
-		}
-
-		ImGui::Checkbox("Show demo window", &demo_window);
-		if (demo_window) {
-			ImGui::ShowDemoWindow();
-		}
-
-		if (ImGui::Button("Rerender")) {
-			rerender = true;
-		}
-		ImGui::Checkbox("Render", &render_raytracing);
-
-		ImGui::End();
-
-		if (ImGui::Begin("Materials")) {
-			for (cl_int i = 0; i < materials.size(); i++) {
-				std::string name = "Material" + std::to_string(i);
-
-				bool opened = ImGui::TreeNode(name.data());
-				if (ImGui::BeginDragDropSource()) {
-					ImGui::SetDragDropPayload("MATERIAL", &i, sizeof(i));
-					ImGui::Text("Set material to Material%d", i);
-					ImGui::EndDragDropSource();
-				}
-
-				// Close button
-				ImGui::SameLine();
-				// Right-align
-				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 10.0f);
-				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f)); // small button
-
-				if (ImGui::Button("X", ImVec2(10.0f, 0.0f))) {
-					materials.erase(materials.begin() + i);
-
-					// Avoid having no material
-					if (materials.size() == 0) {
-						materials.push_back(Material());
-					}
-
-					// Fix ordering
-					for (auto &shape : shapes) {
-						if (shape.material == i) {
-							shape.material = 0;
-						} else if (shape.material > i) {
-							shape.material -= 1;
-						}
-					}
-					i -= 1;
-
-					rerender |= true;
-				}
-
-				ImGui::PopStyleVar();
-
-				if (opened) {
-					auto &material = materials[i];
-
-					rerender |= ImGui::ColorEdit3("Color", &material.color.x);
-					rerender |= ImGui::SliderFloat("Smoothness", &material.smoothness, 0.0f, 1.0f);
-					rerender |= ImGui::SliderFloat("Metallic", &material.metallic, 0.0f, 1.0f);
-					rerender |= ImGui::SliderFloat("Specular", &material.specular, 0.0f, 1.0f);
-					rerender |= ImGui::ColorEdit3("Emission", &material.emission.x);
-					rerender |= ImGui::SliderFloat(
-						"Emission Strength", &material.emission_strength, 0.0f, 100.0f, "%.3f",
-						ImGuiSliderFlags_Logarithmic
-					);
-					rerender |= ImGui::SliderFloat("Transmittance", &material.transmittance, 0.0f, 1.0f);
-					if (material.transmittance > 0.0f) {
-						ImGui::PushItemWidth(-32.0f);
-						rerender |= ImGui::DragFloat("IOR", &material.refraction_index, 0.01f, 1.0f, 20.0f);
-						ImGui::PopItemWidth();
-					}
-
-					ImGui::TreePop();
-				}
-			}
+			ImGui::Checkbox("Render", &render_raytracing);
 		}
 		ImGui::End();
 
+		rerender |= interface::material_window(materials, shapes);
 		if (rerender) {
 			time_not_moved = 1;
 		}
 
-		if (ImGui::Begin("Frame times")) {
-			ImGui::PlotLines(
-				"Timings (ms)", [](void *data, int idx) { return ((std::deque<float> *)data)->at(idx); }, &frame_times,
-				num_frame_samples
-			);
-			float sum = 0.0f;
-			float min_timing = INFINITY;
-			float max_timing = -INFINITY;
-
-			for (auto x : frame_times) {
-				sum += x;
-				min_timing = glm::min(min_timing, x);
-				max_timing = glm::max(max_timing, x);
-			}
-			sum /= num_frame_samples;
-
-			ImGui::Text("Min: %.3f / Max: %.3f", min_timing * 1000.f, max_timing * 1000.f);
-			ImGui::Text("Average timing: %.3f ms", sum * 1000.0f);
-			ImGui::Text("FPS: %.1f", 1.0f / sum);
-			if (limit_fps) {
-				ImGui::SameLine();
-				ImGui::Text("limited to %d FPS", fps_limit);
-			}
-
-			if (ImGui::SliderInt("Number of samples", &num_frame_samples, 1, 120)) {
-				frame_times.resize(num_frame_samples);
-			}
-		}
-
-		ImGui::End();
+		interface::frame_time_window(frame_times, num_frame_samples, limit_fps, fps_limit);
 
 		// Move camera
 		{
@@ -630,12 +262,12 @@ int main(int argc, char **) {
 				time_not_moved = 1;
 			}
 		}
-		camera_to_world = view_matrix(camera);
+		camera_to_world = camera.view_matrix();
 
 		// Handle ray tracing
 		if (time_not_moved == 1) {
 			tracer.clear_canvas();
-			tracer.update_scene(shapes, triangles, materials);
+			tracer.update_scene(shapes, triangles, materials.materials);
 		}
 
 		if (render_raytracing) {
