@@ -12,8 +12,8 @@
 
 #define GLM_FORCE_SWIZZLE
 #include <glm/glm.hpp>
-
 #include <glm/gtx/rotate_vector.hpp>
+#include <stb_image.h>
 
 #include "shape.hpp"
 
@@ -39,6 +39,9 @@ class Tracer {
 	compute::buffer buffer_shapes;
 	compute::buffer buffer_triangles;
 	compute::buffer buffer_materials;
+
+	compute::image2d skybox;
+	compute::image_sampler sampler;
 
   public:
     struct RenderData {

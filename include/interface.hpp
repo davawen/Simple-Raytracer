@@ -162,12 +162,12 @@ inline bool shape_parameters(
 		}
 
 		if (ImGui::Button("Add sphere")) {
-			shapes.push_back({0, Sphere(glm::vec3(0.0f), 10.0f)});
+			shapes.push_back({0, Sphere(glm::vec3(0.0f), 1.0f)});
 			rerender |= true;
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Add box")) {
-			shapes.push_back({0, Box::model(glm::vec3(0.0f), glm::vec3(1.0f))});
+			shapes.push_back({0, Box::model(glm::vec3(0.0f), glm::vec3(2.0f))});
 			rerender |= true;
 		}
 		ImGui::SameLine();

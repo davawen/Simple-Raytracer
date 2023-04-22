@@ -26,11 +26,14 @@
 #include <SDL2/SDL.h>
 
 #include "color.hpp"
+#include "helper.hpp"
+#include "interface.hpp"
 #include "parser.hpp"
 #include "shape.hpp"
 #include "tracer.hpp"
-#include "interface.hpp"
-#include "helper.hpp"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 #define WINDOW_WIDTH 960
 #define WINDOW_HEIGHT 540
@@ -86,23 +89,7 @@ int main(int argc, char **) {
 	auto randcolor = []() { return color::from_RGB(rand() % 256, rand() % 256, rand() % 256); };
 	auto randf = []() { return (float)rand() / (float)RAND_MAX; };
 
-	// materials.push_back(Material(randcolor(), randf(), randf(), randf(), randf(), 1.0f + randf()));
-
-	// for (int i = 0; i < 25; i++) {
-	//
-	// 	float x = (float)(i % 5) * 20.0f;
-	// 	float y = (int)(i / 5) * 20.0f;
-	//
-	// 	Sphere sphere = Sphere({x, 15.0f, y}, 10.0f);
-	// 	shapes.push_back({sphere_material, sphere});
-	// }
-
-	materials.push(Material(color::from_RGB(0xDF, 0x2F, 0x00), 0.0f), "Plane material");
-
-	Plane ground_plane = Plane({0, 0, 0}, {0, 1, 0});
-	shapes.push_back({materials.last_index(), ground_plane});
-
-	Camera camera = {{0.0f, 50.0f, 0.0f}, {0.974f, 0.811f, 0.0f}};
+	Camera camera = {{0.0f, 0.0f, -5.0f}, {0.0f, 0.0f, 0.0f}};
 
 	float aspect_ratio = static_cast<float>(RENDER_WIDTH) / RENDER_HEIGHT;
 
@@ -224,7 +211,9 @@ int main(int argc, char **) {
 
 		if (ImGui::Begin("Parameters")) {
 			rerender |= interface::shape_parameters(shapes, triangles, materials);
-			rerender |= interface::camera_parameters(camera, movement_speed, look_around_speed, pixels, glm::ivec2(WINDOW_WIDTH, WINDOW_HEIGHT));
+			rerender |= interface::camera_parameters(
+				camera, movement_speed, look_around_speed, pixels, glm::ivec2(WINDOW_WIDTH, WINDOW_HEIGHT)
+			);
 			rerender |= interface::scene_parameters(tracer.scene_data);
 			rerender |= interface::render_parameters(tracer.options);
 
@@ -283,12 +272,12 @@ int main(int argc, char **) {
 			int width, height;
 			SDL_GetWindowSizeInPixels(window, &width, &height);
 			int target_height = (int)(width * (1.0f / aspect_ratio));
-			int target_y = (height - target_height)/2;
+			int target_y = (height - target_height) / 2;
 
 			// Render to screen
 			SDL_UpdateTexture(texture, NULL, pixels.data(), RENDER_WIDTH * 4);
 
-			SDL_Rect dstrect = { .x = 0, .y = target_y, .w = width, .h = target_height };
+			SDL_Rect dstrect = {.x = 0, .y = target_y, .w = width, .h = target_height};
 			SDL_RenderCopy(renderer, texture, NULL, &dstrect);
 		}
 

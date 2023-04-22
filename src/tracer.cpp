@@ -37,11 +37,29 @@ Tracer::Tracer(const int width, const int height) : options(width, height) {
 	render_canvas = compute::buffer(context, sizeof(cl_float3) * width * height);
 	render_output = compute::buffer(context, sizeof(cl_uchar4) * width * height);
 
+	FILE *skybox_file = fopen("assets/skybox.png", "r");
+	int channels, w, h;
+	stbi_set_flip_vertically_on_load(1);
+	float *skybox_image = stbi_loadf_from_file(skybox_file, &w, &h, &channels, 4);
+
+	skybox = compute::image2d(context, w, h, compute::image_format(CL_RGBA, CL_FLOAT));
+	sampler = compute::image_sampler(context, true, CL_ADDRESS_REPEAT, CL_FILTER_LINEAR);
+
+	size_t origin[3] = { 0 };
+	size_t region[3] = { (size_t)w, (size_t)h, 1 };
+	queue.enqueue_write_image(skybox, origin, region, skybox_image);
+
+	stbi_image_free(skybox_image);
+	fclose(skybox_file);
+
+
 	// Set arguments
 	kernel.set_arg(2, render_canvas);
 	kernel.set_arg(3, buffer_shapes);
 	kernel.set_arg(4, buffer_triangles);
 	kernel.set_arg(5, buffer_materials);
+	kernel.set_arg(6, skybox);
+	kernel.set_arg(7, sampler);
 
 	average_kernel.set_arg(1, render_canvas);
 	average_kernel.set_arg(2, render_output);

@@ -375,22 +375,23 @@ int closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhi
 	return closest;
 }
 
-float3 sky_box(Ray ray, const Scene *scene) {
-	// const float3 horizon = (float3)(0.251, 0.686, 0.98);
-	// const float3 sky_top = (float3)(0.569, 0.784, 0.949);
-
-	float sky_gradient_t = pow(smoothstep(0.0f, 0.4f, ray.direction.y), 0.35f);
-	float3 sky_gradient = mix(scene->data->horizon_color, scene->data->zenith_color, sky_gradient_t);
+float3 sky_box(Ray ray, const Scene *scene, image2d_t skybox, sampler_t sampler) {
+	// float sky_gradient_t = pow(smoothstep(0.0f, 0.4f, ray.direction.y), 0.35f);
+	// float3 sky_gradient = mix(scene->data->horizon_color, scene->data->zenith_color, sky_gradient_t);
 	float3 sun = pow(max(dot(ray.direction, -scene->data->sun_direction), 0.0f), scene->data->sun_focus)
 		* scene->data->sun_color * scene->data->sun_intensity;
 
-	float ground_to_sky = smoothstep(-0.01f, 0.0f, ray.direction.y); // 0 -> 1 step function
-	float sun_mask = ground_to_sky >= 1;
+	// float ground_to_sky = smoothstep(-0.01f, 0.0f, ray.direction.y); // 0 -> 1 step function
+	// float sun_mask = ground_to_sky >= 1;
 
-	return mix(scene->data->ground_color, sky_gradient, ground_to_sky) + sun * sun_mask;
+	// return mix(scene->data->ground_color, sky_gradient, ground_to_sky) + sun * sun_mask;
+	float u = atan2pi(ray.direction.z, ray.direction.x)*0.5f + 0.5f;
+	float v = ray.direction.y*0.5f + 0.5f;
+
+	return read_imagef(skybox, sampler, (float2)(u, v)).xyz + sun;
 }
 
-float3 trace(const RenderData *render, const Scene *scene, Ray *camray, uint seed) {
+float3 trace(const RenderData *render, const Scene *scene, Ray *camray, uint seed, image2d_t skybox, sampler_t sampler) {
 	float3 color = (float3)(0.f);
 	float3 mask = (float3)(1.f);
 
@@ -458,7 +459,7 @@ float3 trace(const RenderData *render, const Scene *scene, Ray *camray, uint see
 			ray.direction = normalize(ray.direction);
 			ray.origin += rayhit.normal * sign(dot(rayhit.normal, ray.direction)) * 0.001f; // avoid shadow acne
 		} else { // No collision -- Sky
-			mask *= sky_box(ray, scene);
+			mask *= sky_box(ray, scene, skybox, sampler);
 			color += mask;
 			break;
 		}
@@ -479,12 +480,15 @@ float3 aces(float3 x) {
 
 __kernel void render(
 	const RenderData data, const SceneData sceneData, __global float3 *output, __global const Shape *shapes,
-	__global const Triangle *triangles, __global const Material *materials
+	__global const Triangle *triangles, __global const Material *materials,
+	image2d_t skybox, sampler_t sampler
 ) {
 	const uint id = get_global_id(0);
 
 	Scene scene = {.data = &sceneData, .shapes = shapes, .triangles = triangles, .materials = materials};
 	float2 windowPos = (float2)(id % data.width, (uint)(id / data.width)); // Raster space coordinates
+
+	// output[id] += read_imagef()
 
 	float3 color = (float3)(0.f);
 	for (int sample = 0; sample < data.num_samples; sample++) {
@@ -510,7 +514,7 @@ __kernel void render(
 		// Only normalize 3d components
 		ray.direction = normalize(matrix_by_vector(data.camera_to_world, (float4)(cameraPos.xyz, 0)).xyz);
 
-		color += trace(&data, &scene, &ray, seed /* + (data.time<<3)*/);
+		color += trace(&data, &scene, &ray, seed, skybox, sampler);
 	}
 	color /= data.num_samples;
 
