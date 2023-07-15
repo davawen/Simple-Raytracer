@@ -22,7 +22,7 @@
 
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
-#include "imgui_impl_sdlrenderer.h"
+#include "imgui_impl_sdlrenderer2.h"
 #include <SDL2/SDL.h>
 
 #include "color.hpp"
@@ -71,7 +71,7 @@ int main(int argc, char **) {
 	ImGui::StyleColorsDark();
 
 	ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
-	ImGui_ImplSDLRenderer_Init(renderer);
+	ImGui_ImplSDLRenderer2_Init(renderer);
 
 	SDL_Texture *texture =
 		SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, RENDER_WIDTH, RENDER_HEIGHT);
@@ -203,7 +203,7 @@ int main(int argc, char **) {
 		}
 
 		// Handle imgui
-		ImGui_ImplSDLRenderer_NewFrame();
+		ImGui_ImplSDLRenderer2_NewFrame();
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
 
@@ -288,7 +288,7 @@ int main(int argc, char **) {
 
 		// Render imgui output
 		ImGui::Render();
-		ImGui_ImplSDLRenderer_RenderDrawData(ImGui::GetDrawData());
+		ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
 
 		SDL_RenderPresent(renderer);
 
@@ -311,7 +311,7 @@ int main(int argc, char **) {
 		delta_time = now() - start;
 	}
 
-	ImGui_ImplSDLRenderer_Shutdown();
+	ImGui_ImplSDLRenderer2_Shutdown();
 	ImGui_ImplSDL2_Shutdown();
 	ImGui::DestroyContext();
 

@@ -165,6 +165,10 @@ inline float length_squared(float3 v) {
 	return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
+inline float distance_squared(float3 a, float3 b) {
+	return length_squared(b - a);
+}
+
 inline float shlick_reflectance(float mu, float cos_theta) {
 	float r0 = (1.0 - mu) / (1.0 + mu);
 	r0 = r0 * r0;
@@ -304,9 +308,7 @@ int closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhi
 
 					if (rayhit != NULL) {
 						rayhit->position = ray->origin + ray->direction * tmin;
-						rayhit->normal = normalize(rayhit->position - sphere->position);
-						rayhit->front =
-							length_squared(ray->origin - sphere->position) > sphere->radius * fabs(sphere->radius);
+						rayhit->normal = (rayhit->position - sphere->position) / sphere->radius;
 					}
 				}
 			}
@@ -340,8 +342,6 @@ int closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhi
 
 							// Assume couter-clockwise vertex order (-Z main axis)
 							float3 computed_normal = cross(triangle.v1.pos - triangle.v0.pos, triangle.v2.pos - triangle.v0.pos);
-
-							rayhit->front = dot(computed_normal, ray->direction) < 0.0f;
 						}
 					}
 				}
@@ -357,7 +357,6 @@ int closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhi
 
 					if (rayhit != NULL) {
 						rayhit->normal = plane->normal;
-						rayhit->front = dot(plane->normal, ray->direction) < 0.0f;
 						rayhit->position = ray->origin + ray->direction * tmin;
 					}
 				}
@@ -369,6 +368,7 @@ int closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhi
 		return -1;
 
 	if (rayhit != NULL) {
+		rayhit->front = dot(rayhit->normal, ray->direction) < 0.0f;
 		rayhit->normal *= rayhit->front ? 1.0f : -1.0f; // Reflect normal to always face the camera
 	}
 

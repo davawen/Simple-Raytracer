@@ -43,7 +43,7 @@ Tracer::Tracer(const int width, const int height) : options(width, height) {
 	float *skybox_image = stbi_loadf_from_file(skybox_file, &w, &h, &channels, 4);
 
 	skybox = compute::image2d(context, w, h, compute::image_format(CL_RGBA, CL_FLOAT));
-	sampler = compute::image_sampler(context, true, CL_ADDRESS_REPEAT, CL_FILTER_LINEAR);
+	sampler = compute::image_sampler(context, true, CL_ADDRESS_CLAMP_TO_EDGE, CL_FILTER_LINEAR);
 
 	size_t origin[3] = { 0 };
 	size_t region[3] = { (size_t)w, (size_t)h, 1 };
