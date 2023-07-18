@@ -38,17 +38,17 @@ static glm::vec3 quaternion_to_eulerZYX(const glm::quat &q) {
 static bool end_button(const char *text, float end_offset = 0.0f, float *out_size = nullptr) {
 	ImGui::SameLine();
 
-	float size = ImGui::CalcTextSize(text).x + 5.0f;
+	float size = ImGui::CalcTextSize(text).x + 10.0f;
 	if (out_size != nullptr)
 		*out_size = size;
 
 	// Right-align
 	ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - size - end_offset);
-	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f)); // small button
+	// ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f)); // small button
 
 	bool out = ImGui::Button(text, ImVec2(size, 0.0f));
 
-	ImGui::PopStyleVar();
+	// ImGui::PopStyleVar();
 
 	return out;
 }
@@ -64,18 +64,27 @@ inline bool sphere_properties(
 
 	if (selected) {
 		glm::mat4 m16 = glm::translate(sphere.position);
-		bool manipulated = ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::WORLD, mptr(m16));
-		// if (manipulated) {
+		auto scale = glm::vec3(sphere.radius);
+		m16 *= glm::scale(scale);
 		float scratch[3], s[3];
-		ImGuizmo::DecomposeMatrixToComponents(mptr(m16), (float *)&sphere.position, scratch, s);
 
-		// ImGui::InputFloat3("delta scale", s);
-		// sphere.radius += s[0];
-		// sphere.radius += s[1];
-		// sphere.radius += s[2];
+		ImGuizmo::DecomposeMatrixToComponents(mptr(m16), scratch, scratch, s);
+		if (memcmp(&scale.x, s, sizeof(float)*3) != 0)
+			printf("A Original: (%.3f, %.3f, %.3f), decomposed: (%.3f, %.3f, %.3f)\n", scale.x, scale.y, scale.z, s[0], s[1], s[2]);
 
-		rerender |= manipulated;
-		// }
+		bool manipulated = ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::LOCAL, mptr(m16));
+		if (manipulated) {
+			ImGuizmo::DecomposeMatrixToComponents(mptr(m16), (float *)&sphere.position, scratch, s);
+
+			float diff = 0.0f;
+			// diff += s[0] - sphere.radius;
+			// diff += s[1] - sphere.radius;
+			// diff += s[2] - sphere.radius;
+			sphere.radius = s[0];
+			printf("B Original: (%.3f, %.3f, %.3f), new: (%.3f, %.3f, %.3f), diff: %.3f, new radius: %.3f\n", scale.x, scale.y, scale.z, s[0], s[1], s[2], diff, sphere.radius);
+
+			rerender |= manipulated;
+		}
 	}
 	return rerender;
 }
@@ -112,18 +121,19 @@ inline bool model_properties(
 	Model &model, std::vector<Triangle> &triangles, glm::mat4 view, glm::mat4 perspective, ImGuizmo::OPERATION op, bool opened, bool selected
 ) {
 	bool moved = false;
+	// ImGuizmo::SetID(rand());
 	if (selected) {
-		moved |= ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::WORLD, mptr(model.transform));
+		moved |= ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::LOCAL, mptr(model.transform));
 	}
 
 	if (opened) {
 		ImGui::Text("%d triangles", model.num_triangles);
 
-		float t[3], r[3], s[3];
-		ImGuizmo::DecomposeMatrixToComponents(mptr(model.transform), t, r, s);
-		moved |= ImGui::DragFloat3("Position", t, 0.1f);
-		moved |= ImGui::SliderFloat3("Rotation", r, -180.0f, 180.0f, "%.1f deg");
-		moved |= ImGui::DragFloat3("Size", s, 0.1f);
+		// float t[3], r[3], s[3];
+		// ImGuizmo::DecomposeMatrixToComponents(mptr(model.transform), t, r, s);
+		// moved |= ImGui::DragFloat3("Position", t, 0.1f);
+		// moved |= ImGui::SliderFloat3("Rotation", r, -180.0f, 180.0f, "%.1f deg");
+		// moved |= ImGui::DragFloat3("Size", s, 0.1f);
 	}
 
 	if (moved) {
@@ -142,7 +152,7 @@ inline bool shape_parameters(
 	static ImGuizmo::OPERATION guizmo_operation = ImGuizmo::TRANSLATE;
 
 	bool rerender = false;
-	if (ImGui::TreeNode("Shapes")) {
+	if (ImGui::BeginTabItem("Shapes")) {
 		// Non shortcutting OR
 		if (ImGui::IsKeyPressed(ImGuiKey_E) | ImGui::RadioButton("Translate", guizmo_operation == ImGuizmo::TRANSLATE))
 			guizmo_operation = ImGuizmo::TRANSLATE;
@@ -192,7 +202,9 @@ inline bool shape_parameters(
 				}
 			};
 
-			bool opened = ImGui::TreeNodeEx(name, selected ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None);
+			
+			auto flags = ImGuiTreeNodeFlags_FramePadding | (selected ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None);
+			bool opened = ImGui::TreeNodeEx(name, flags);
 			drag_and_drop();
 			float x_size;
 			if (end_button("X", 0.0f, &x_size)) {
@@ -301,7 +313,7 @@ inline bool shape_parameters(
 			ImGui::EndPopup();
 		}
 
-		ImGui::TreePop();
+		ImGui::EndTabItem();
 	}
 
 	return rerender;
@@ -312,7 +324,7 @@ inline bool camera_parameters(
 	glm::ivec2 canvas_size
 ) {
 	bool rerender = false;
-	if (ImGui::TreeNode("Camera")) {
+	if (ImGui::BeginTabItem("Camera")) {
 		rerender |= ImGui::DragFloat3("Position", &camera.position.x, 0.1f);
 		rerender |= ImGui::DragFloat2("Orientation", &camera.yaw, 0.1f);
 		ImGui::DragFloat("Movement Speed", &movement_speed, 0.1f, 1.0f, 50.0f);
@@ -334,14 +346,14 @@ inline bool camera_parameters(
 			ImGui::EndPopup();
 		}
 
-		ImGui::TreePop();
+		ImGui::EndTabItem();
 	}
 	return rerender;
 }
 
 inline bool scene_parameters(Tracer::SceneData &scene_data) {
 	bool rerender = false;
-	if (ImGui::TreeNode("Scene Parameters")) {
+	if (ImGui::BeginTabItem("Scene")) {
 		rerender |= ImGui::ColorEdit3("Horizon color", (float *)&scene_data.horizon_color);
 		rerender |= ImGui::ColorEdit3("Zenith color", (float *)&scene_data.zenith_color);
 		rerender |= ImGui::ColorEdit3("Ground color", (float *)&scene_data.ground_color);
@@ -357,20 +369,25 @@ inline bool scene_parameters(Tracer::SceneData &scene_data) {
 			dir = VEC3TOCL(glm_dir);
 			rerender = true;
 		}
-		ImGui::TreePop();
+		ImGui::EndTabItem();
 	}
 
 	return rerender;
 }
 
-inline bool render_parameters(Tracer::RenderData &render_data) {
+inline bool render_parameters(Tracer::RenderData &render_data, bool &render_raytracing) {
 	bool rerender = false;
-	if (ImGui::TreeNode("Render Parameters")) {
+	if (ImGui::BeginTabItem("Render")) {
 		ImGui::SliderInt("Samples", &render_data.num_samples, 1, 32);
 		rerender |= ImGui::SliderInt("Bounces", &render_data.num_bounces, 1, 32);
 		rerender |= ImGui::Checkbox("Show normals", &render_data.show_normals);
+		if (ImGui::Button("Rerender")) {
+			rerender = true;
+		}
 
-		ImGui::TreePop();
+		ImGui::Checkbox("Render", &render_raytracing);
+
+		ImGui::EndTabItem();
 	}
 
 	return rerender;
@@ -468,7 +485,7 @@ inline bool material_window(MaterialHelper &materials, std::vector<Shape> &shape
 	return rerender;
 }
 
-inline void frame_time_window(std::deque<float> &frame_times, int &num_frame_samples, bool &limit_fps, int &fps_limit) {
+inline void frame_time_window(std::deque<float> &frame_times, int &num_frame_samples, bool &limit_fps, int &fps_limit, bool &log_fps) {
 	if (ImGui::Begin("Frame times")) {
 		ImGui::PlotLines(
 			"Timings (ms)", [](void *data, int idx) { return ((std::deque<float> *)data)->at(idx); }, &frame_times,
@@ -501,8 +518,16 @@ inline void frame_time_window(std::deque<float> &frame_times, int &num_frame_sam
 			ImGui::PopID();
 		}
 
-		if (ImGui::SliderInt("Number of samples", &num_frame_samples, 1, 120)) {
+		if (ImGui::SliderInt("Frametime samples", &num_frame_samples, 1, 120)) {
 			frame_times.resize(num_frame_samples);
+		}
+
+		ImGui::Checkbox("Log FPS (Console)", &log_fps);
+
+		static bool demo_window = false;
+		ImGui::Checkbox("Show demo window", &demo_window);
+		if (demo_window) {
+			ImGui::ShowDemoWindow();
 		}
 	}
 	ImGui::End();

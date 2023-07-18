@@ -3,6 +3,7 @@
 #include <functional>
 #include <iostream>
 #include <random>
+
 #include <vector>
 
 #define CL_TARGET_OPENCL_VERSION 200
@@ -135,13 +136,13 @@ int main(int argc, char **) {
 	float look_around_speed = 25.0f;
 
 	bool render_raytracing = true;
-	bool demo_window = false;
 
 	int num_frame_samples = 60;
 	std::deque<float> frame_times;
 	frame_times.resize(num_frame_samples);
 
 	bool limit_fps = true;
+	bool log_fps = true;
 	int fps_limit = 60;
 
 	SDL_Event event;
@@ -213,28 +214,23 @@ int main(int argc, char **) {
 
 		ImGuiIO &io = ImGui::GetIO();
 		ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+		ImGuizmo::AllowAxisFlip(false);
 
 		bool rerender = false;
 
 		glm::mat4 perspective_mat = glm::infinitePerspective(fov, aspect_ratio, 0.1f);
 		if (ImGui::Begin("Parameters")) {
-			rerender |=
-				interface::shape_parameters(camera.view_matrix(), perspective_mat, shapes, triangles, materials);
-			rerender |= interface::camera_parameters(
-				camera, movement_speed, look_around_speed, pixels, glm::ivec2(WINDOW_WIDTH, WINDOW_HEIGHT)
-			);
-			rerender |= interface::scene_parameters(tracer.scene_data);
-			rerender |= interface::render_parameters(tracer.options);
+			if (ImGui::BeginTabBar("params_tab_bar", ImGuiTabBarFlags_Reorderable)) {
+				rerender |=
+					interface::shape_parameters(camera.view_matrix(), perspective_mat, shapes, triangles, materials);
+				rerender |= interface::camera_parameters(
+					camera, movement_speed, look_around_speed, pixels, glm::ivec2(WINDOW_WIDTH, WINDOW_HEIGHT)
+				);
+				rerender |= interface::scene_parameters(tracer.scene_data);
+				rerender |= interface::render_parameters(tracer.options, render_raytracing);
 
-			ImGui::Checkbox("Show demo window", &demo_window);
-			if (demo_window) {
-				ImGui::ShowDemoWindow();
+				ImGui::EndTabBar();
 			}
-
-			if (ImGui::Button("Rerender")) {
-				rerender = true;
-			}
-			ImGui::Checkbox("Render", &render_raytracing);
 		}
 		ImGui::End();
 
@@ -243,7 +239,7 @@ int main(int argc, char **) {
 			time_not_moved = 1;
 		}
 
-		interface::frame_time_window(frame_times, num_frame_samples, limit_fps, fps_limit);
+		interface::frame_time_window(frame_times, num_frame_samples, limit_fps, fps_limit, log_fps);
 
 		// Move camera
 		{
@@ -317,7 +313,7 @@ int main(int argc, char **) {
 		time_not_moved++;
 
 		if (tick == 60) {
-			std::cout << "Average time: " << average * 1000.0 / 60.0 << " ms\n";
+			if (log_fps) std::cout << "Average time: " << average * 1000.0 / 60.0 << " ms\n";
 			tick = 0;
 			average = 0.0f;
 		}
