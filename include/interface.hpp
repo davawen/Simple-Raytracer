@@ -3,7 +3,6 @@
 #include <concepts>
 #include <glm/gtx/matrix_decompose.hpp>
 
-#include "ImGuizmo.h"
 #include "imgui.h"
 
 #include "helper.hpp"
@@ -54,7 +53,7 @@ static bool end_button(const char *text, float end_offset = 0.0f, float *out_siz
 }
 
 inline bool sphere_properties(
-	Sphere &sphere, glm::mat4 view, glm::mat4 perspective, ImGuizmo::OPERATION op, bool opened, bool selected
+	Sphere &sphere, glm::mat4 view, glm::mat4 perspective, /* ImGuizmo::OPERATION op ,*/ bool opened, bool selected
 ) {
 	bool rerender = false;
 	if (opened) {
@@ -68,20 +67,15 @@ inline bool sphere_properties(
 		m16 *= glm::scale(scale);
 		float scratch[3], s[3];
 
-		ImGuizmo::DecomposeMatrixToComponents(mptr(m16), scratch, scratch, s);
-		if (memcmp(&scale.x, s, sizeof(float)*3) != 0)
-			printf("A Original: (%.3f, %.3f, %.3f), decomposed: (%.3f, %.3f, %.3f)\n", scale.x, scale.y, scale.z, s[0], s[1], s[2]);
-
-		bool manipulated = ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::LOCAL, mptr(m16));
+		bool manipulated = false;//ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::LOCAL, mptr(m16));
 		if (manipulated) {
-			ImGuizmo::DecomposeMatrixToComponents(mptr(m16), (float *)&sphere.position, scratch, s);
+			// ImGuizmo::DecomposeMatrixToComponents(mptr(m16), (float *)&sphere.position, scratch, s);
 
 			float diff = 0.0f;
 			// diff += s[0] - sphere.radius;
 			// diff += s[1] - sphere.radius;
 			// diff += s[2] - sphere.radius;
 			sphere.radius = s[0];
-			printf("B Original: (%.3f, %.3f, %.3f), new: (%.3f, %.3f, %.3f), diff: %.3f, new radius: %.3f\n", scale.x, scale.y, scale.z, s[0], s[1], s[2], diff, sphere.radius);
 
 			rerender |= manipulated;
 		}
@@ -90,7 +84,7 @@ inline bool sphere_properties(
 }
 
 inline bool plane_properties(
-	Plane &plane, glm::mat4 view, glm::mat4 perspective, ImGuizmo::OPERATION op, bool opened, bool selected
+	Plane &plane, glm::mat4 view, glm::mat4 perspective, /* ImGuizmo::OPERATION op,  */bool opened, bool selected
 ) {
 	bool rerender = false;
 	if (opened) {
@@ -100,7 +94,7 @@ inline bool plane_properties(
 
 	if (selected) {
 		glm::mat4 m16 = glm::rotate(0.0f, plane.normal);
-		bool manipulated = ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::WORLD, mptr(m16));
+		bool manipulated = false;//ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::WORLD, mptr(m16));
 
 		if (manipulated) {
 			glm::quat orientation;
@@ -118,12 +112,12 @@ inline bool plane_properties(
 }
 
 inline bool model_properties(
-	Model &model, std::vector<Triangle> &triangles, glm::mat4 view, glm::mat4 perspective, ImGuizmo::OPERATION op, bool opened, bool selected
+	Model &model, std::vector<Triangle> &triangles, glm::mat4 view, glm::mat4 perspective, /* ImGuizmo::OPERATION op,  */bool opened, bool selected
 ) {
 	bool moved = false;
 	// ImGuizmo::SetID(rand());
 	if (selected) {
-		moved |= ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::LOCAL, mptr(model.transform));
+		moved |= false;//ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::LOCAL, mptr(model.transform));
 	}
 
 	if (opened) {
@@ -149,22 +143,22 @@ inline bool shape_parameters(
 	MaterialHelper &materials
 ) {
 	static int guizmo_selected = -1;
-	static ImGuizmo::OPERATION guizmo_operation = ImGuizmo::TRANSLATE;
+	//static ImGuizmo::OPERATION guizmo_operation = ImGuizmo::TRANSLATE;
 
 	bool rerender = false;
 	if (ImGui::BeginTabItem("Shapes")) {
 		// Non shortcutting OR
-		if (ImGui::IsKeyPressed(ImGuiKey_E) | ImGui::RadioButton("Translate", guizmo_operation == ImGuizmo::TRANSLATE))
-			guizmo_operation = ImGuizmo::TRANSLATE;
-		ImGui::SameLine();
-		if (ImGui::IsKeyPressed(ImGuiKey_R) | ImGui::RadioButton("Rotate", guizmo_operation == ImGuizmo::ROTATE))
-			guizmo_operation = ImGuizmo::ROTATE;
-		ImGui::SameLine();
-		if (ImGui::IsKeyPressed(ImGuiKey_T) | ImGui::RadioButton("Scale", guizmo_operation == ImGuizmo::SCALE))
-			guizmo_operation = ImGuizmo::SCALE;
-		ImGui::SameLine();
-		if (ImGui::IsKeyPressed(ImGuiKey_Y) | ImGui::RadioButton("Universal", guizmo_operation == ImGuizmo::UNIVERSAL))
-			guizmo_operation = ImGuizmo::UNIVERSAL;
+		// if (ImGui::IsKeyPressed(ImGuiKey_E) | ImGui::RadioButton("Translate", guizmo_operation == ImGuizmo::TRANSLATE))
+		// 	guizmo_operation = ImGuizmo::TRANSLATE;
+		// ImGui::SameLine();
+		// if (ImGui::IsKeyPressed(ImGuiKey_R) | ImGui::RadioButton("Rotate", guizmo_operation == ImGuizmo::ROTATE))
+		// 	guizmo_operation = ImGuizmo::ROTATE;
+		// ImGui::SameLine();
+		// if (ImGui::IsKeyPressed(ImGuiKey_T) | ImGui::RadioButton("Scale", guizmo_operation == ImGuizmo::SCALE))
+		// 	guizmo_operation = ImGuizmo::SCALE;
+		// ImGui::SameLine();
+		// if (ImGui::IsKeyPressed(ImGuiKey_Y) | ImGui::RadioButton("Universal", guizmo_operation == ImGuizmo::UNIVERSAL))
+		// 	guizmo_operation = ImGuizmo::UNIVERSAL;
 
 		for (size_t i = 0; i < shapes.size(); i++) {
 			auto &shape = shapes[i];
@@ -217,11 +211,11 @@ inline bool shape_parameters(
 			}
 
 			if (shape.type == ShapeType::SHAPE_SPHERE)
-				rerender |= sphere_properties(shape.shape.sphere, view_matrix, perspective_matrix, guizmo_operation, opened, selected);
+				rerender |= sphere_properties(shape.shape.sphere, view_matrix, perspective_matrix, /* guizmo_operation, */ opened, selected);
 			else if (shape.type == ShapeType::SHAPE_PLANE)
-				rerender |= plane_properties(shape.shape.plane, view_matrix, perspective_matrix, guizmo_operation, opened, selected);
+				rerender |= plane_properties(shape.shape.plane, view_matrix, perspective_matrix, /* guizmo_operation, */ opened, selected);
 			else if (shape.type == ShapeType::SHAPE_MODEL)
-				rerender |= model_properties(shape.shape.model, triangles, view_matrix, perspective_matrix, guizmo_operation, opened, selected);
+				rerender |= model_properties(shape.shape.model, triangles, view_matrix, perspective_matrix, /* guizmo_operation, */ opened, selected);
 
 			if (opened) {
 				rerender |= ImGui::Combo(

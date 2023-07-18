@@ -21,7 +21,6 @@
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtx/vector_query.hpp>
 
-#include "ImGuizmo.h"
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
@@ -74,8 +73,6 @@ int main(int argc, char **) {
 
 	ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
 	ImGui_ImplSDLRenderer2_Init(renderer);
-
-	ImGuizmo::SetImGuiContext(ImGui::GetCurrentContext());
 
 	SDL_Texture *texture =
 		SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, RENDER_WIDTH, RENDER_HEIGHT);
@@ -210,11 +207,6 @@ int main(int argc, char **) {
 		ImGui_ImplSDLRenderer2_NewFrame();
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
-		ImGuizmo::BeginFrame();
-
-		ImGuiIO &io = ImGui::GetIO();
-		ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
-		ImGuizmo::AllowAxisFlip(false);
 
 		bool rerender = false;
 
