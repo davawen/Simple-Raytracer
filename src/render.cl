@@ -57,10 +57,7 @@ typedef struct {
 	uint num_triangles;
 	float3 bounding_min;
 	float3 bounding_max;
-	float3 position;
-	float3 scale;
-	/// quaternion
-	float4 orientation;
+	float4 transform[4];
 } Model;
 
 typedef enum {
@@ -131,8 +128,12 @@ inline float3 rotate(float3 v, float4 q) {
 	return v + ((uv * q.w) + uuv) * 2.0f;
 }
 
-inline float3 transform(float3 p, float3 translation, float3 scale, float4 orientation) {
+inline float3 transform_separate(float3 p, float3 translation, float3 scale, float4 orientation) {
 	return rotate(p*scale, orientation) + translation;
+}
+
+inline float3 transform_mat(__generic const float4 *m, float3 p, _Bool translate) {
+	return matrix_by_vector(m, (float4)(p, translate)).xyz;
 }
 
 inline float3 reflect(const float3 v, const float3 n) {
@@ -323,7 +324,7 @@ int closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhi
 			for (size_t i = 0; i < model->num_triangles; i++) {
 				Triangle triangle = scene->triangles[model->triangle_index + i];
 				for (size_t j = 0; j <= 2; j++) {
-					triangle.vertices[j].pos = transform(triangle.vertices[j].pos, model->position, model->scale, model->orientation);
+					triangle.vertices[j].pos = transform_mat(model->transform, triangle.vertices[j].pos, true);
 				}
 
 				float t_i;
@@ -337,8 +338,9 @@ int closest_intersection(const Scene *scene, const Ray *ray, Intersection *rayhi
 
 							// Smooth shading
 							float3 weights = barycentric_weights(&triangle, rayhit->position);
-							rayhit->normal = normalize(triangle.v0.normal*weights.x + triangle.v1.normal*weights.y + triangle.v2.normal*weights.z);
-							rayhit->normal = rotate(rayhit->normal, model->orientation);
+							rayhit->normal = triangle.v0.normal*weights.x + triangle.v1.normal*weights.y + triangle.v2.normal*weights.z;
+							rayhit->normal = transform_mat(model->transform, rayhit->normal, false);
+							rayhit->normal = normalize(rayhit->normal);
 
 							// Assume couter-clockwise vertex order (-Z main axis)
 							float3 computed_normal = cross(triangle.v1.pos - triangle.v0.pos, triangle.v2.pos - triangle.v0.pos);
@@ -500,7 +502,7 @@ __kernel void render(
 		float2 screenPos = (float2
 		)((2.f * ndcPos.x - 1.f) * data.aspect_ratio * data.fov_scale,
 		  (1.f - 2.f * ndcPos.y) * data.fov_scale); // Screen space coordinates (invert y axis)
-		float3 cameraPos = (float3)(screenPos.x, screenPos.y, 1);
+		float3 cameraPos = (float3)(screenPos.x, screenPos.y, -1);
 
 		Ray ray;
 		// 1 0 0 x

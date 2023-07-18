@@ -14,6 +14,7 @@
 #define CL_TARGET_OPENCL_VERSION 200
 #include <boost/compute/types.hpp>
 
+#include "helper.hpp"
 #include "color.hpp"
 #include "material.hpp"
 
@@ -61,9 +62,7 @@ struct Model {
 	cl_uint num_triangles;
 	alignas(cl_float3) glm::vec3 bounding_min;
 	alignas(cl_float3) glm::vec3 bounding_max;
-	alignas(cl_float3) glm::vec3 position;
-	alignas(cl_float3) glm::vec3 scale;
-	alignas(cl_float3) glm::quat orientation;
+	alignas(cl_float3) glm::mat4 transform;
 
 	Model();
 

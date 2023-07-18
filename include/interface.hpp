@@ -1,7 +1,9 @@
 #pragma once
 
 #include <concepts>
+#include <glm/gtx/matrix_decompose.hpp>
 
+#include "ImGuizmo.h"
 #include "imgui.h"
 
 #include "helper.hpp"
@@ -31,29 +33,129 @@ static glm::vec3 quaternion_to_eulerZYX(const glm::quat &q) {
 	return a;
 }
 
-/// 'X' button at the end of the line
-template <typename F> requires std::invocable<F>
-static void end_button(F &&func, const char *text = "X", float end_offset = 0.0f) {
+/// Puts a button at the end of the line
+/// @returns The size of this button
+static bool end_button(const char *text, float end_offset = 0.0f, float *out_size = nullptr) {
 	ImGui::SameLine();
 
 	float size = ImGui::CalcTextSize(text).x + 5.0f;
+	if (out_size != nullptr)
+		*out_size = size;
 
 	// Right-align
 	ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - size - end_offset);
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f)); // small button
 
-	if (ImGui::Button(text, ImVec2(size, 0.0f))) {
-		func();
-	}
+	bool out = ImGui::Button(text, ImVec2(size, 0.0f));
 
 	ImGui::PopStyleVar();
+
+	return out;
+}
+
+inline bool sphere_properties(
+	Sphere &sphere, glm::mat4 view, glm::mat4 perspective, ImGuizmo::OPERATION op, bool opened, bool selected
+) {
+	bool rerender = false;
+	if (opened) {
+		rerender |= ImGui::DragFloat3("Position", &sphere.position.x, 0.1f);
+		rerender |= ImGui::DragFloat("Radius", &sphere.radius, 0.05f, 1.0f, 0.1f);
+	}
+
+	if (selected) {
+		glm::mat4 m16 = glm::translate(sphere.position);
+		bool manipulated = ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::WORLD, mptr(m16));
+		// if (manipulated) {
+		float scratch[3], s[3];
+		ImGuizmo::DecomposeMatrixToComponents(mptr(m16), (float *)&sphere.position, scratch, s);
+
+		// ImGui::InputFloat3("delta scale", s);
+		// sphere.radius += s[0];
+		// sphere.radius += s[1];
+		// sphere.radius += s[2];
+
+		rerender |= manipulated;
+		// }
+	}
+	return rerender;
+}
+
+inline bool plane_properties(
+	Plane &plane, glm::mat4 view, glm::mat4 perspective, ImGuizmo::OPERATION op, bool opened, bool selected
+) {
+	bool rerender = false;
+	if (opened) {
+		rerender |= ImGui::DragFloat3("Position", &plane.position.x, 0.1f);
+		ImGui::InputFloat3("Normal", &plane.normal.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
+	}
+
+	if (selected) {
+		glm::mat4 m16 = glm::rotate(0.0f, plane.normal);
+		bool manipulated = ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::WORLD, mptr(m16));
+
+		if (manipulated) {
+			glm::quat orientation;
+			glm::vec3 s;  // Don't care
+			glm::vec4 s2; // Don't care
+
+			glm::decompose(m16, s, orientation, plane.position, s, s2);
+			plane.normal = glm::axis(orientation);
+
+			rerender |= manipulated;
+		}
+	}
+
+	return rerender;
+}
+
+inline bool model_properties(
+	Model &model, std::vector<Triangle> &triangles, glm::mat4 view, glm::mat4 perspective, ImGuizmo::OPERATION op, bool opened, bool selected
+) {
+	bool moved = false;
+	if (selected) {
+		moved |= ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::WORLD, mptr(model.transform));
+	}
+
+	if (opened) {
+		ImGui::Text("%d triangles", model.num_triangles);
+
+		float t[3], r[3], s[3];
+		ImGuizmo::DecomposeMatrixToComponents(mptr(model.transform), t, r, s);
+		moved |= ImGui::DragFloat3("Position", t, 0.1f);
+		moved |= ImGui::SliderFloat3("Rotation", r, -180.0f, 180.0f, "%.1f deg");
+		moved |= ImGui::DragFloat3("Size", s, 0.1f);
+	}
+
+	if (moved) {
+		// ImGuizmo::RecomposeMatrixFromComponents(t, r, s, mptr(model.transform));
+		model.compute_bounding_box(triangles);
+		return true;
+	}
+	return false;
 }
 
 inline bool shape_parameters(
-	std::vector<Shape> &shapes, std::vector<Triangle> &triangles, MaterialHelper &materials
+	glm::mat4 view_matrix, glm::mat4 perspective_matrix, std::vector<Shape> &shapes, std::vector<Triangle> &triangles,
+	MaterialHelper &materials
 ) {
+	static int guizmo_selected = -1;
+	static ImGuizmo::OPERATION guizmo_operation = ImGuizmo::TRANSLATE;
+
 	bool rerender = false;
 	if (ImGui::TreeNode("Shapes")) {
+		// Non shortcutting OR
+		if (ImGui::IsKeyPressed(ImGuiKey_E) | ImGui::RadioButton("Translate", guizmo_operation == ImGuizmo::TRANSLATE))
+			guizmo_operation = ImGuizmo::TRANSLATE;
+		ImGui::SameLine();
+		if (ImGui::IsKeyPressed(ImGuiKey_R) | ImGui::RadioButton("Rotate", guizmo_operation == ImGuizmo::ROTATE))
+			guizmo_operation = ImGuizmo::ROTATE;
+		ImGui::SameLine();
+		if (ImGui::IsKeyPressed(ImGuiKey_T) | ImGui::RadioButton("Scale", guizmo_operation == ImGuizmo::SCALE))
+			guizmo_operation = ImGuizmo::SCALE;
+		ImGui::SameLine();
+		if (ImGui::IsKeyPressed(ImGuiKey_Y) | ImGui::RadioButton("Universal", guizmo_operation == ImGuizmo::UNIVERSAL))
+			guizmo_operation = ImGuizmo::UNIVERSAL;
+
 		for (size_t i = 0; i < shapes.size(); i++) {
 			auto &shape = shapes[i];
 			ImGui::PushID(i);
@@ -61,38 +163,7 @@ inline bool shape_parameters(
 			const char *names[] = {"Sphere", "Plane", "Model"};
 			const char *name = names[shape.type];
 
-			std::function<void()> properties[] = {
-				[&shape, &rerender]() {
-					auto &sphere = shape.shape.sphere;
-					rerender |= ImGui::DragFloat3("Position", &sphere.position.x, 0.1f);
-					rerender |= ImGui::DragFloat("Radius", &sphere.radius, 0.05f, 1.0f, 0.1f);
-				},
-				[&shape, &rerender]() {
-					auto &plane = shape.shape.plane;
-					rerender |= ImGui::DragFloat3("Position", &plane.position.x, 0.1f);
-				},
-				[&triangles, &shape, &rerender]() {
-					auto &model = shape.shape.model;
-					ImGui::Text("%d triangles", model.num_triangles);
-
-					glm::vec3 angles = quaternion_to_eulerZYX(model.orientation);
-					angles = glm::degrees(angles);
-
-					bool moved = false;
-					moved |= ImGui::DragFloat3("Position", &model.position.x, 0.1f);
-					moved |= ImGui::DragFloat3("Size", &model.scale.x, 0.1f);
-					if (ImGui::SliderFloat3("Rotation", &angles.x, -180.0f, 180.0f, "%.1f deg")) {
-						model.orientation = glm::quat(glm::radians(angles));
-						// glm::eulerAngleZYX
-						moved |= true;
-					}
-
-					if (moved) {
-						model.compute_bounding_box(triangles);
-						rerender |= true;
-					}
-				}};
-			std::function<void()> shape_properties = properties[shape.type];
+			bool selected = guizmo_selected == i;
 
 			auto drag_and_drop = [&rerender, &shapes, &i, &name]() {
 				if (ImGui::BeginDragDropSource()) {
@@ -121,17 +192,26 @@ inline bool shape_parameters(
 				}
 			};
 
-			bool opened = ImGui::TreeNode(name);
+			bool opened = ImGui::TreeNodeEx(name, selected ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None);
 			drag_and_drop();
-			end_button([&shapes, &i, &rerender]() {
+			float x_size;
+			if (end_button("X", 0.0f, &x_size)) {
 				shapes.erase(shapes.begin() + i);
 				i -= 1;
 				rerender |= true;
-			});
+			}
+			if (end_button("S", x_size + 5.0f)) {
+				guizmo_selected = selected ? -1 : i;
+			}
+
+			if (shape.type == ShapeType::SHAPE_SPHERE)
+				rerender |= sphere_properties(shape.shape.sphere, view_matrix, perspective_matrix, guizmo_operation, opened, selected);
+			else if (shape.type == ShapeType::SHAPE_PLANE)
+				rerender |= plane_properties(shape.shape.plane, view_matrix, perspective_matrix, guizmo_operation, opened, selected);
+			else if (shape.type == ShapeType::SHAPE_MODEL)
+				rerender |= model_properties(shape.shape.model, triangles, view_matrix, perspective_matrix, guizmo_operation, opened, selected);
 
 			if (opened) {
-				shape_properties();
-
 				rerender |= ImGui::Combo(
 					"Material", &shape.material,
 					[](void *void_names, int index, const char **out) {
@@ -162,11 +242,13 @@ inline bool shape_parameters(
 		}
 
 		if (ImGui::Button("Add sphere")) {
+			guizmo_selected = shapes.size();
 			shapes.push_back({0, Sphere(glm::vec3(0.0f), 1.0f)});
 			rerender |= true;
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Add box")) {
+			guizmo_selected = shapes.size();
 			shapes.push_back({0, Box::model(glm::vec3(0.0f), glm::vec3(2.0f))});
 			rerender |= true;
 		}
@@ -208,6 +290,7 @@ inline bool shape_parameters(
 					error = false;
 
 					auto model = Model(triangles, indices->first, indices->second);
+					guizmo_selected = shapes.size();
 					shapes.push_back({0, model});
 					rerender |= true;
 
@@ -231,7 +314,7 @@ inline bool camera_parameters(
 	bool rerender = false;
 	if (ImGui::TreeNode("Camera")) {
 		rerender |= ImGui::DragFloat3("Position", &camera.position.x, 0.1f);
-		rerender |= ImGui::DragFloat3("Orientation", &camera.rotation.x, 0.1f);
+		rerender |= ImGui::DragFloat2("Orientation", &camera.yaw, 0.1f);
 		ImGui::DragFloat("Movement Speed", &movement_speed, 0.1f, 1.0f, 50.0f);
 		ImGui::DragFloat("Look Speed", &look_around_speed, 0.1f, 1.0f, 50.0f);
 
@@ -312,7 +395,7 @@ inline bool material_window(MaterialHelper &materials, std::vector<Shape> &shape
 			}
 
 			// close button
-			end_button([&materials, &i, &shapes, &rerender](){
+			if (end_button("X")) {
 				materials.remove(i);
 
 				// Avoid having no material
@@ -331,16 +414,16 @@ inline bool material_window(MaterialHelper &materials, std::vector<Shape> &shape
 				i -= 1;
 
 				rerender |= true;
-			});
+			}
 
 			// edit name button
-			end_button([&name, &i](){
+			if (end_button("Edit", 15.0f)) {
 				std::memcpy(choosen_name, name.c_str(), 127);
 				choosen_name[127] = '\0';
 				editing_name = i;
 
 				ImGui::OpenPopup("edit_material_name");
-			}, "Edit", 15.0f);
+			}
 
 			if (ImGui::BeginPopup("edit_material_name")) {
 				ImGui::InputText("Name", choosen_name, 128);
@@ -373,7 +456,6 @@ inline bool material_window(MaterialHelper &materials, std::vector<Shape> &shape
 				ImGui::TreePop();
 			}
 
-			
 			ImGui::PopID();
 		}
 
@@ -427,4 +509,3 @@ inline void frame_time_window(std::deque<float> &frame_times, int &num_frame_sam
 }
 
 } // namespace interface
-

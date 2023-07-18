@@ -20,6 +20,7 @@
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtx/vector_query.hpp>
 
+#include "ImGuizmo.h"
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
@@ -73,6 +74,8 @@ int main(int argc, char **) {
 	ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
 	ImGui_ImplSDLRenderer2_Init(renderer);
 
+	ImGuizmo::SetImGuiContext(ImGui::GetCurrentContext());
+
 	SDL_Texture *texture =
 		SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, RENDER_WIDTH, RENDER_HEIGHT);
 
@@ -89,7 +92,7 @@ int main(int argc, char **) {
 	auto randcolor = []() { return color::from_RGB(rand() % 256, rand() % 256, rand() % 256); };
 	auto randf = []() { return (float)rand() / (float)RAND_MAX; };
 
-	Camera camera = {{0.0f, 0.0f, -5.0f}, {0.0f, 0.0f, 0.0f}};
+	Camera camera = {{0.0f, 0.0f, 5.0f}, 0.0f, 0.0f};
 
 	float aspect_ratio = static_cast<float>(RENDER_WIDTH) / RENDER_HEIGHT;
 
@@ -184,15 +187,15 @@ int main(int argc, char **) {
 					break;
 
 				auto get_look_speed = [delta_time, look_around_speed, fov_scale](float rel) {
-					return glm::pi<float>() * rel * delta_time * look_around_speed * fov_scale / 1000.f;
+					return -glm::pi<float>() * rel * delta_time * look_around_speed * fov_scale / 1000.f;
 				};
 
 				if (event.motion.xrel != 0) {
-					camera.rotation.y += get_look_speed(event.motion.xrel);
+					camera.yaw += get_look_speed(event.motion.xrel);
 				}
 
 				if (event.motion.yrel != 0) {
-					camera.rotation.x += get_look_speed(event.motion.yrel);
+					camera.pitch += get_look_speed(event.motion.yrel);
 				}
 				time_not_moved = 1;
 				break;
@@ -206,11 +209,17 @@ int main(int argc, char **) {
 		ImGui_ImplSDLRenderer2_NewFrame();
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
+		ImGuizmo::BeginFrame();
+
+		ImGuiIO &io = ImGui::GetIO();
+		ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
 
 		bool rerender = false;
 
+		glm::mat4 perspective_mat = glm::infinitePerspective(fov, aspect_ratio, 0.1f);
 		if (ImGui::Begin("Parameters")) {
-			rerender |= interface::shape_parameters(shapes, triangles, materials);
+			rerender |=
+				interface::shape_parameters(camera.view_matrix(), perspective_mat, shapes, triangles, materials);
 			rerender |= interface::camera_parameters(
 				camera, movement_speed, look_around_speed, pixels, glm::ivec2(WINDOW_WIDTH, WINDOW_HEIGHT)
 			);
@@ -239,7 +248,7 @@ int main(int argc, char **) {
 		// Move camera
 		{
 			float horizontal = pressed_keys[SDLK_d] - pressed_keys[SDLK_a];
-			float transversal = pressed_keys[SDLK_w] - pressed_keys[SDLK_s];
+			float transversal = pressed_keys[SDLK_s] - pressed_keys[SDLK_w];
 			float vertical = pressed_keys[SDLK_SPACE] - pressed_keys[SDLK_c];
 
 			const glm::vec3 movement = glm::normalize(
@@ -251,7 +260,7 @@ int main(int argc, char **) {
 				time_not_moved = 1;
 			}
 		}
-		camera_to_world = camera.view_matrix();
+		camera_to_world = camera.camera_matrix();
 
 		// Handle ray tracing
 		if (time_not_moved == 1) {
@@ -273,6 +282,13 @@ int main(int argc, char **) {
 			SDL_GetWindowSizeInPixels(window, &width, &height);
 			int target_height = (int)(width * (1.0f / aspect_ratio));
 			int target_y = (height - target_height) / 2;
+
+			// Clear top and bottom
+			SDL_Rect r = { 0, 0, width, target_y };
+			SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+			SDL_RenderFillRect(renderer, &r);
+			r = { 0, target_y+target_height, width, height-target_y-target_height };
+			SDL_RenderFillRect(renderer, &r);
 
 			// Render to screen
 			SDL_UpdateTexture(texture, NULL, pixels.data(), RENDER_WIDTH * 4);

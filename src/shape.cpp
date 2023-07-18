@@ -37,9 +37,7 @@ Model::Model(const std::vector<Triangle> &triangles, cl_uint triangle_index, cl_
 	this->triangle_index = triangle_index;
 	this->num_triangles = num_triangles;
 
-	this->position = glm::vec3();
-	this->scale = glm::vec3(1.0f);
-	this->orientation = glm::identity<glm::quat>();
+	this->transform = glm::mat4(1.0f); // identity
 	this->compute_bounding_box(triangles);
 }
 
@@ -51,7 +49,7 @@ void Model::compute_bounding_box(const std::vector<Triangle> &triangles) {
 		auto &triangle = triangles[triangle_index + i];
 
 		for (uint j = 0; j < 3; j++) {
-			auto vertex = glm::rotate(orientation, triangle.vertices[j].pos * scale) + position;
+			auto vertex = transform_vec3(transform, triangle.vertices[j].pos, true);
 			bounding_min = glm::min(bounding_min, vertex);
 			bounding_max = glm::max(bounding_max, vertex);
 		}
@@ -84,9 +82,7 @@ Model Box::model(const glm::vec3 &position, const glm::vec3 &size) {
 	model.num_triangles = 12;
 	model.bounding_min = position - size * 0.5f;
 	model.bounding_max = position + size * 0.5f;
-	model.position = position;
-	model.scale = glm::vec3(1.0f);
-	model.orientation = glm::identity<glm::quat>();
+	model.transform = glm::translate(position);
 
 	return model;
 }
