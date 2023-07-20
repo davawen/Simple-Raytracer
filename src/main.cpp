@@ -94,13 +94,12 @@ int main(int argc, char **) {
 	// std::unordered_map<fs::path, ModelPair> model_cache;
 
 	Camera camera = {{0.0f, 0.0f, 5.0f}, 0.0f, 0.0f};
+	glm::mat4 camera_mat;
 
 	float aspect_ratio = static_cast<float>(RENDER_WIDTH) / RENDER_HEIGHT;
 
 	float fov = glm::pi<float>() / 2.f; // 90 degrees
 	float fov_scale = glm::tan(fov / 2.f);
-
-	glm::mat4 camera_to_world;
 
 	Tracer tracer(RENDER_WIDTH, RENDER_HEIGHT);
 
@@ -216,7 +215,7 @@ int main(int argc, char **) {
 			float vertical = pressed_keys[SDLK_SPACE] - pressed_keys[SDLK_c];
 
 			const glm::vec3 movement = glm::normalize(
-				glm::vec3(camera_to_world * glm::vec4(horizontal, 0, transversal, 0))
+				glm::vec3(camera_mat * glm::vec4(horizontal, 0, transversal, 0))
 				+ glm::vec3(0, vertical, 0)
 			); // 0 at the end nullify's translation
 
@@ -225,7 +224,10 @@ int main(int argc, char **) {
 				time_not_moved = 1;
 			}
 		}
-		camera_to_world = camera.camera_matrix();
+		camera_mat = camera.camera_matrix();
+		glm::mat4 perspective_mat = glm::infinitePerspective(fov, aspect_ratio, 0.1f);
+		glm::mat4 view_mat = camera.view_matrix();
+		glm::mat4 clip_mat = perspective_mat * view_mat;
 
 		// Handle imgui
 		ImGui_ImplSDLRenderer2_NewFrame();
@@ -236,75 +238,11 @@ int main(int argc, char **) {
 		glm::vec2 win_size = glm::vec2(io.DisplaySize.x, io.DisplaySize.y);
 
 		// Im3d state
-		glm::mat4 perspective_mat = glm::infinitePerspective(fov, aspect_ratio, 0.1f);
-		glm::mat4 view_mat = camera.view_matrix();
-
-		guizmo_state.mouse_left = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-		guizmo_state.hotkey_ctrl = ImGui::IsKeyDown(ImGuiKey_ModCtrl);
-		guizmo_state.hotkey_local = ImGui::IsKeyDown(ImGuiKey_L);
-		guizmo_state.hotkey_translate = ImGui::IsKeyDown(ImGuiKey_T);
-		guizmo_state.hotkey_scale = ImGui::IsKeyDown(ImGuiKey_S);
-		guizmo_state.hotkey_rotate = ImGui::IsKeyDown(ImGuiKey_R);
-		guizmo_state.viewport_size = win_size;
-		{
-			guizmo_state.ray_origin = camera.position;
-			glm::vec2 ndc = {io.MousePos.x, io.MousePos.y};
-			ndc /= win_size;
-			glm::vec2 screen = {
-				(2.0f * ndc.x - 1.0f) * aspect_ratio * fov_scale,
-				(1.0f - 2.0f * ndc.y) * fov_scale};
-			glm::vec3 ray = {screen, -1.0f};
-			ray = glm::normalize(transform_vec3(camera_to_world, ray, false));
-			guizmo_state.ray_direction = ray;
-		}
-		guizmo_state.cam = tinygizmo::camera_parameters {
-			.yfov = fov, .near_clip = 0.1f, .far_clip = 1000.0f,
-			.position = camera.position, // quick hacky conversion
-			.orientation = glm::toQuat(camera_to_world) 
-		};
-
-		glm::mat4 cam_mat = perspective_mat * view_mat;
-
-		auto trans = [&cam_mat, &win_size, &view_mat, &camera, &fov_scale](const tinygizmo::geometry_vertex &vd, glm::vec2 &p) -> bool {
-			glm::vec4 v = {vd.position.x, vd.position.y, vd.position.z, 1.0f};
-			glm::vec4 x = cam_mat * v;
-			p = glm::vec2(x) / x.w;
-			p = glm::vec2(p.x*0.5f + 0.5f, 0.5f - 0.5f*p.y);
-			// std::string s = glm::to_string(v) + ", " + glm::to_string(p);
-			// ImGui::Text("%s", s.c_str());
-			p *= win_size;
-			return x.z < 0.0f;
-		};
-
-		guizmo_ctx.render = [&renderer, &trans](const tinygizmo::geometry_mesh &r) {
-			std::vector<SDL_Vertex> vertices; // keep memory allocation
-			// triangles.clear();
-			vertices.reserve(r.vertices.size());
-			for (int i = 0; i < r.vertices.size(); i += 3) {
-				SDL_Vertex a[3];
-				int clipped = 0;
-				for (int j = 0; j < 3; j++) {
-					auto &v = r.vertices[i+j];
-					glm::vec2 p;
-					if (trans(v, p)) clipped++;
-					auto c = minalg::vec<uint8_t, 4>(v.color*255.0f);
-					a[j] = SDL_Vertex{
-						.position = SDL_FPoint{p.x, p.y},
-						.color = { c.x, c.y, c.z, c.w }//(SDL_Color)v.m_color
-					};
-				}
-				if (clipped == 3) continue;
-
-				for (int j = 0; j < 3; j++) {
-					SDL_SetRenderDrawColor(renderer, a[j].color.r, a[j].color.g, a[j].color.b, a[j].color.a);
-					SDL_RenderDrawPointsF(renderer, &a[j].position, 1);
-					vertices.push_back(a[j]);
-				}
-			}
-			SDL_RenderGeometry(renderer, NULL, vertices.data(), vertices.size(), (int *)r.triangles.data(), r.triangles.size()*3);
-		};
-
+		interface::update_guizmo_state(guizmo_state, io, camera, camera_mat, aspect_ratio, fov, fov_scale, win_size);
 		guizmo_ctx.update(guizmo_state);
+		guizmo_ctx.render = [&renderer, &clip_mat, &win_size](const tinygizmo::geometry_mesh &r) {
+			interface::guizmo_render(renderer, clip_mat, win_size, r);
+		};
 
 		if (ImGui::Begin("Parameters")) {
 			if (ImGui::BeginTabBar("params_tab_bar", ImGuiTabBarFlags_Reorderable)) {
@@ -340,7 +278,7 @@ int main(int argc, char **) {
 			auto &options = tracer.options;
 			options.aspect_ratio = aspect_ratio;
 			options.fov_scale = fov_scale;
-			options.camera_to_world = camera_to_world;
+			options.camera_to_world = camera_mat;
 			options.time = start * 1000;
 			options.tick = tick;
 
@@ -378,11 +316,8 @@ int main(int argc, char **) {
 			pressed_keys[SDLK_p] = false;
 		}
 
-		// ImGui::Begin("AAA");
-
-		guizmo_ctx.draw();
-
 		// Render imgui output
+		guizmo_ctx.draw();
 		ImGui::Render();
 		ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
 
