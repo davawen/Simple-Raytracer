@@ -46,7 +46,9 @@ static bool end_button(const char *text, float end_offset = 0.0f, float *out_siz
 		*out_size = size;
 
 	// Right-align
-	ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - size - end_offset);
+	ImGui::SetCursorPosX(
+		ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - size - end_offset
+	);
 	// ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f)); // small button
 
 	bool out = ImGui::Button(text, ImVec2(size, 0.0f));
@@ -56,9 +58,7 @@ static bool end_button(const char *text, float end_offset = 0.0f, float *out_siz
 	return out;
 }
 
-inline bool sphere_properties(
-	Sphere &sphere, gizmo_context &ctx, bool opened, bool selected
-) {
+inline bool sphere_properties(Sphere &sphere, gizmo_context &ctx, bool opened, bool selected) {
 	bool rerender = false;
 	if (opened) {
 		rerender |= ImGui::DragFloat3("Position", &sphere.position.x, 0.1f);
@@ -66,19 +66,25 @@ inline bool sphere_properties(
 	}
 
 	if (selected) {
-		tinygizmo::rigid_transform t;
+		static tinygizmo::rigid_transform t;
 		t.position = sphere.position;
+		glm::vec3 previous_scale = t.scale;
+		t.scale = glm::vec3(sphere.radius);
+		t.orientation = glm::quat_identity<float, glm::defaultp>();
 
 		bool manipulated = tinygizmo::transform_gizmo("sphere", ctx, t);
 		if (manipulated) {
 			sphere.position = t.position;
-			// ImGuizmo::DecomposeMatrixToComponents(mptr(m16), (float *)&sphere.position, scratch, s);
 
-			// float diff = 0.0f;
-			// diff += s[0] - sphere.radius;
-			// diff += s[1] - sphere.radius;
-			// diff += s[2] - sphere.radius;
-			// sphere.radius = s[0];
+			float diff = 0.0f;
+			diff += t.scale.x - previous_scale.x;
+			diff += t.scale.y - previous_scale.y;
+			diff += t.scale.z - previous_scale.z;
+
+			// std::cout << "From " << glm::to_string(s) << " to " <<
+			// glm::to_string(glm::vec3(t.scale)) << ", diff = " << diff << '\n';
+
+			sphere.radius += diff;
 
 			rerender |= manipulated;
 		}
@@ -86,24 +92,27 @@ inline bool sphere_properties(
 	return rerender;
 }
 
-inline bool plane_properties(
-	Plane &plane, gizmo_context &ctx, bool opened, bool selected
-) {
+inline bool plane_properties(Plane &plane, gizmo_context &ctx, bool opened, bool selected) {
 	bool rerender = false;
 	if (opened) {
 		rerender |= ImGui::DragFloat3("Position", &plane.position.x, 0.1f);
-		ImGui::InputFloat3("Normal", &plane.normal.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
+		rerender |= ImGui::InputFloat3("Normal", &plane.normal.x, "%.3f");
 	}
 
 	if (selected) {
 		tinygizmo::rigid_transform t;
 		t.position = plane.position;
-		t.orientation = glm::qua(0.0f, plane.normal);
+		glm::vec3 up = { 0.0f, 1.0f, 0.0f };
+		glm::vec3 v = glm::cross(up, plane.normal);
+		t.orientation.xyz() = v;
+		t.orientation.w = glm::sqrt(glm::length2(up)*glm::length2(plane.normal)) + glm::dot(up, plane.normal);
+		t.orientation = minalg::normalize(t.orientation);
+
 		bool manipulated = tinygizmo::transform_gizmo("plane", ctx, t);
 
 		if (manipulated) {
 			plane.position = t.position;
-			plane.normal = glm::axis(glm::quat(t.orientation));
+			plane.normal = glm::rotate((glm::quat)t.orientation, up);
 
 			rerender |= manipulated;
 		}
@@ -122,10 +131,13 @@ inline bool model_properties(
 	decompose(model.transform, &scale, &orientation, &position);
 	if (selected) {
 		tinygizmo::rigid_transform t;
-		t.orientation = orientation; t.position = position, t.scale = scale;
+		t.orientation = orientation;
+		t.position = position, t.scale = scale;
 		bool manipulated = tinygizmo::transform_gizmo("model", ctx, t);
 		if (manipulated) {
-			position = t.position; orientation = t.orientation; scale = t.scale;
+			position = t.position;
+			orientation = t.orientation;
+			scale = t.scale;
 			moved |= manipulated;
 		}
 	}
@@ -147,28 +159,53 @@ inline bool model_properties(
 }
 
 inline bool shape_parameters(
-	std::vector<Shape> &shapes, std::vector<Triangle> &triangles,
-	gizmo_context &ctx,
+	std::vector<Shape> &shapes, std::vector<Triangle> &triangles, gizmo_context &ctx,
 	MaterialHelper &materials
 ) {
 	static int guizmo_selected = -1;
-	//static ImGuizmo::OPERATION guizmo_operation = ImGuizmo::TRANSLATE;
+	// static ImGuizmo::OPERATION guizmo_operation = ImGuizmo::TRANSLATE;
 
 	bool rerender = false;
 	if (ImGui::BeginTabItem("Shapes")) {
-		// Non shortcutting OR
-		// if (ImGui::IsKeyPressed(ImGuiKey_E) | ImGui::RadioButton("Translate", guizmo_operation == ImGuizmo::TRANSLATE))
-		// 	guizmo_operation = ImGuizmo::TRANSLATE;
-		// ImGui::SameLine();
-		// if (ImGui::IsKeyPressed(ImGuiKey_R) | ImGui::RadioButton("Rotate", guizmo_operation == ImGuizmo::ROTATE))
-		// 	guizmo_operation = ImGuizmo::ROTATE;
-		// ImGui::SameLine();
-		// if (ImGui::IsKeyPressed(ImGuiKey_T) | ImGui::RadioButton("Scale", guizmo_operation == ImGuizmo::SCALE))
-		// 	guizmo_operation = ImGuizmo::SCALE;
-		// ImGui::SameLine();
-		// if (ImGui::IsKeyPressed(ImGuiKey_Y) | ImGui::RadioButton("Universal", guizmo_operation == ImGuizmo::UNIVERSAL))
-		// 	guizmo_operation = ImGuizmo::UNIVERSAL;
+		auto mode = ctx.get_mode();
+		using Mode = tinygizmo::transform_mode;
+		const char *text[] = { "Translate", "Rotate", "Scale" };
+		const char *tooltip[] = { "T", "R", "S" };
+		Mode modes[] = { Mode::translate, Mode::rotate, Mode::scale };
+		for (int i = 0; i < 3; i++) {
+			if (i > 0) ImGui::SameLine();
+			ImGui::RadioButton(text[i], mode == modes[i]);
+			if (ImGui::BeginItemTooltip()) {
+				ImGui::Text("(Ctrl+%s)", tooltip[i]);
+				ImGui::EndTooltip();
+			}
+		}
 
+		if (ImGui::Button("Add sphere")) {
+			guizmo_selected = shapes.size();
+			shapes.push_back({0, Sphere(glm::vec3(0.0f), 1.0f)});
+			rerender |= true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Add plane")) {
+			guizmo_selected = shapes.size();
+			shapes.push_back({0, Plane(glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f))});
+			rerender |= true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Add box")) {
+			guizmo_selected = shapes.size();
+			shapes.push_back({0, Box::model(glm::vec3(0.0f), glm::vec3(2.0f))});
+			rerender |= true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Add model")) {
+			ImGui::OpenPopup("model");
+		}
+
+		ImGui::Separator();
+
+		ImGui::BeginChild("shape_list");
 		for (size_t i = 0; i < shapes.size(); i++) {
 			auto &shape = shapes[i];
 			ImGui::PushID(i);
@@ -205,8 +242,8 @@ inline bool shape_parameters(
 				}
 			};
 
-			
-			auto flags = ImGuiTreeNodeFlags_FramePadding | (selected ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None);
+			auto flags = ImGuiTreeNodeFlags_FramePadding
+				| (selected ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None);
 			bool opened = ImGui::TreeNodeEx(name, flags);
 			drag_and_drop();
 			float x_size;
@@ -255,28 +292,13 @@ inline bool shape_parameters(
 
 			ImGui::PopID();
 		}
-
-		if (ImGui::Button("Add sphere")) {
-			guizmo_selected = shapes.size();
-			shapes.push_back({0, Sphere(glm::vec3(0.0f), 1.0f)});
-			rerender |= true;
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Add box")) {
-			guizmo_selected = shapes.size();
-			shapes.push_back({0, Box::model(glm::vec3(0.0f), glm::vec3(2.0f))});
-			rerender |= true;
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Add model")) {
-			ImGui::OpenPopup("model");
-		}
+		ImGui::EndChild();
 
 		if (ImGui::BeginPopup("model")) {
 			static enum {
 				STL,
 				OBJ
-			} filetype;
+			} filetype = OBJ;
 			ImGui::Text("Filetype");
 			ImGui::SameLine();
 			ImGui::RadioButton("STL", (int *)&filetype, STL);
@@ -323,8 +345,8 @@ inline bool shape_parameters(
 }
 
 inline bool camera_parameters(
-	Camera &camera, float &movement_speed, float &look_around_speed, const std::vector<uint8_t> &pixels,
-	glm::ivec2 canvas_size
+	Camera &camera, float &movement_speed, float &look_around_speed,
+	const std::vector<uint8_t> &pixels, glm::ivec2 canvas_size
 ) {
 	bool rerender = false;
 	if (ImGui::BeginTabItem("Camera")) {
@@ -364,7 +386,8 @@ inline bool scene_parameters(Tracer::SceneData &scene_data) {
 		rerender |= ImGui::SliderFloat("Sun focus", &scene_data.sun_focus, 0.0f, 100.0f);
 		rerender |= ImGui::ColorEdit3("Sun color", (float *)&scene_data.sun_color);
 		rerender |= ImGui::SliderFloat(
-			"Sun intensity", &scene_data.sun_intensity, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic
+			"Sun intensity", &scene_data.sun_intensity, 0.0f, 1000.0f, "%.3f",
+			ImGuiSliderFlags_Logarithmic
 		);
 		auto &dir = scene_data.sun_direction;
 		if (ImGui::DragFloat3("Sun direction", (float *)&dir)) {
@@ -464,12 +487,15 @@ inline bool material_window(MaterialHelper &materials, std::vector<Shape> &shape
 				rerender |= ImGui::SliderFloat("Specular", &material.specular, 0.0f, 1.0f);
 				rerender |= ImGui::ColorEdit3("Emission", &material.emission.x);
 				rerender |= ImGui::SliderFloat(
-					"Emission Strength", &material.emission_strength, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_Logarithmic
+					"Emission Strength", &material.emission_strength, 0.0f, 100.0f, "%.3f",
+					ImGuiSliderFlags_Logarithmic
 				);
-				rerender |= ImGui::SliderFloat("Transmittance", &material.transmittance, 0.0f, 1.0f);
+				rerender |=
+					ImGui::SliderFloat("Transmittance", &material.transmittance, 0.0f, 1.0f);
 				if (material.transmittance > 0.0f) {
 					ImGui::PushItemWidth(-32.0f);
-					rerender |= ImGui::DragFloat("IOR", &material.refraction_index, 0.01f, 1.0f, 20.0f);
+					rerender |=
+						ImGui::DragFloat("IOR", &material.refraction_index, 0.01f, 1.0f, 20.0f);
 					ImGui::PopItemWidth();
 				}
 
@@ -488,10 +514,14 @@ inline bool material_window(MaterialHelper &materials, std::vector<Shape> &shape
 	return rerender;
 }
 
-inline void frame_time_window(std::deque<float> &frame_times, int &num_frame_samples, bool &limit_fps, int &fps_limit, bool &log_fps) {
+inline void frame_time_window(
+	std::deque<float> &frame_times, int &num_frame_samples, bool &limit_fps, int &fps_limit,
+	bool &log_fps
+) {
 	if (ImGui::Begin("Frame times")) {
 		ImGui::PlotLines(
-			"Timings (ms)", [](void *data, int idx) { return ((std::deque<float> *)data)->at(idx); }, &frame_times,
+			"Timings (ms)",
+			[](void *data, int idx) { return ((std::deque<float> *)data)->at(idx); }, &frame_times,
 			num_frame_samples
 		);
 		float sum = 0.0f;
