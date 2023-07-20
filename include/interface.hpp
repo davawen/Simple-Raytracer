@@ -6,6 +6,7 @@
 
 #include "imgui.h"
 #include "tiny-gizmo.hpp"
+#include <IconsFontAwesome6.h>
 #include <SDL_render.h>
 
 #include "helper.hpp"

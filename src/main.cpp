@@ -21,10 +21,11 @@
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtx/vector_query.hpp>
 
-#include "imgui.h"
-#include "imgui_impl_sdl2.h"
-#include "imgui_impl_sdlrenderer2.h"
-#include "tiny-gizmo.hpp"
+#include <imgui.h>
+#include <imgui_impl_sdl2.h>
+#include <imgui_impl_sdlrenderer2.h>
+#include <tiny-gizmo.hpp>
+#include <IconsFontAwesome6.h>
 #include <SDL2/SDL.h>
 
 #include "color.hpp"
@@ -74,6 +75,15 @@ int main(int argc, char **) {
 
 	ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
 	ImGui_ImplSDLRenderer2_Init(renderer);
+
+	auto &io = ImGui::GetIO();
+	io.Fonts->AddFontDefault();
+
+	ImFontConfig config;
+	config.MergeMode = true;
+	config.GlyphMinAdvanceX = 13.0f;
+	static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+	io.Fonts->AddFontFromFileTTF("assets/font_awesome.ttf", 13.0f, &config, icon_ranges);
 
 	tinygizmo::gizmo_context guizmo_ctx;
 	tinygizmo::gizmo_application_state guizmo_state;
@@ -234,7 +244,6 @@ int main(int argc, char **) {
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
 
-		auto &io = ImGui::GetIO();
 		glm::vec2 win_size = glm::vec2(io.DisplaySize.x, io.DisplaySize.y);
 
 		// Im3d state

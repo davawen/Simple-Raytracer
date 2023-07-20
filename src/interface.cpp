@@ -113,18 +113,34 @@ bool interface::shape_parameters(
 	if (ImGui::BeginTabItem("Shapes")) {
 		auto mode = ctx.get_mode();
 		using Mode = tinygizmo::transform_mode;
-		const char *text[] = {"Translate", "Rotate", "Scale"};
-		const char *tooltip[] = {"T", "R", "S"};
+		const char *text[] = { ICON_FA_UP_DOWN_LEFT_RIGHT, ICON_FA_ROTATE, ICON_FA_MAXIMIZE};
+		const char *tooltip[] = {"Translate (Ctrl+T)", "Rotate (Ctrl+R)", "Scale (Ctrl+S)"};
 		Mode modes[] = {Mode::translate, Mode::rotate, Mode::scale};
 		for (int i = 0; i < 3; i++) {
 			if (i > 0)
 				ImGui::SameLine();
-			ImGui::RadioButton(text[i], mode == modes[i]);
+
+			bool active = mode == modes[i];
+			if (active) {
+				auto col = ImGui::GetStyleColorVec4(ImGuiCol_Button);
+				col.x *= 0.5f; col.y *= 0.5f; col.z *= 0.5f; // darken color
+				ImGui::PushStyleColor(ImGuiCol_Button, col);
+			}
+			ImGui::Button(text[i]);
+			if (active) ImGui::PopStyleColor();
+
 			if (ImGui::BeginItemTooltip()) {
-				ImGui::Text("(Ctrl+%s)", tooltip[i]);
+				ImGui::Text("%s", tooltip[i]);
 				ImGui::EndTooltip();
 			}
 		}
+
+		ImGui::BeginDisabled(guizmo_selected == -1);
+		if (ImGui::Button(ICON_FA_CLONE " Duplicate")){
+			shapes.push_back(shapes[guizmo_selected]);
+			guizmo_selected = shapes.size()-1;
+		}
+		ImGui::EndDisabled();
 
 		if (ImGui::Button("Add sphere")) {
 			guizmo_selected = shapes.size();
