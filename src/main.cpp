@@ -24,6 +24,7 @@
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
+#include "tiny-gizmo.hpp"
 #include <SDL2/SDL.h>
 
 #include "color.hpp"
@@ -74,8 +75,12 @@ int main(int argc, char **) {
 	ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
 	ImGui_ImplSDLRenderer2_Init(renderer);
 
-	SDL_Texture *texture =
-		SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, RENDER_WIDTH, RENDER_HEIGHT);
+	tinygizmo::gizmo_context guizmo_ctx;
+	tinygizmo::gizmo_application_state guizmo_state;
+
+	SDL_Texture *texture = SDL_CreateTexture(
+		renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, RENDER_WIDTH, RENDER_HEIGHT
+	);
 
 	std::vector<Shape> shapes;
 	std::vector<Triangle> triangles;
@@ -87,8 +92,6 @@ int main(int argc, char **) {
 	Box::create_triangle(triangles);
 
 	// std::unordered_map<fs::path, ModelPair> model_cache;
-	auto randcolor = []() { return color::from_RGB(rand() % 256, rand() % 256, rand() % 256); };
-	auto randf = []() { return (float)rand() / (float)RAND_MAX; };
 
 	Camera camera = {{0.0f, 0.0f, 5.0f}, 0.0f, 0.0f};
 
@@ -139,7 +142,7 @@ int main(int argc, char **) {
 	frame_times.resize(num_frame_samples);
 
 	bool limit_fps = true;
-	bool log_fps = true;
+	bool log_fps = false;
 	int fps_limit = 60;
 
 	SDL_Event event;
@@ -185,7 +188,8 @@ int main(int argc, char **) {
 					break;
 
 				auto get_look_speed = [delta_time, look_around_speed, fov_scale](float rel) {
-					return -glm::pi<float>() * rel * delta_time * look_around_speed * fov_scale / 1000.f;
+					return -glm::pi<float>() * rel * delta_time * look_around_speed * fov_scale
+						/ 1000.f;
 				};
 
 				if (event.motion.xrel != 0) {
@@ -203,20 +207,123 @@ int main(int argc, char **) {
 			}
 		}
 
+		bool rerender = false;
+
+		// Move camera
+		{
+			float horizontal = pressed_keys[SDLK_d] - pressed_keys[SDLK_a];
+			float transversal = pressed_keys[SDLK_s] - pressed_keys[SDLK_w];
+			float vertical = pressed_keys[SDLK_SPACE] - pressed_keys[SDLK_c];
+
+			const glm::vec3 movement = glm::normalize(
+				glm::vec3(camera_to_world * glm::vec4(horizontal, 0, transversal, 0))
+				+ glm::vec3(0, vertical, 0)
+			); // 0 at the end nullify's translation
+
+			if (!glm::all(glm::isnan(movement)) && !glm::isNull(movement, glm::epsilon<float>())) {
+				camera.position += movement * delta_time * movement_speed;
+				time_not_moved = 1;
+			}
+		}
+		camera_to_world = camera.camera_matrix();
+
 		// Handle imgui
 		ImGui_ImplSDLRenderer2_NewFrame();
 		ImGui_ImplSDL2_NewFrame();
 		ImGui::NewFrame();
 
-		bool rerender = false;
+		auto &io = ImGui::GetIO();
+		glm::vec2 win_size = glm::vec2(io.DisplaySize.x, io.DisplaySize.y);
 
+		// Im3d state
 		glm::mat4 perspective_mat = glm::infinitePerspective(fov, aspect_ratio, 0.1f);
+		glm::mat4 view_mat = camera.view_matrix();
+
+		guizmo_state.mouse_left = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+		guizmo_state.hotkey_ctrl = ImGui::IsKeyDown(ImGuiKey_ModCtrl);
+		guizmo_state.hotkey_local = ImGui::IsKeyDown(ImGuiKey_L);
+		guizmo_state.hotkey_translate = ImGui::IsKeyDown(ImGuiKey_T);
+		guizmo_state.hotkey_scale = ImGui::IsKeyDown(ImGuiKey_S);
+		guizmo_state.hotkey_rotate = ImGui::IsKeyDown(ImGuiKey_R);
+		guizmo_state.viewport_size = minalg::float2(win_size.x, win_size.y);
+		{
+			ImGui::Begin("aaa");
+			guizmo_state.ray_origin = minalg::float3(camera.position.x, camera.position.y, camera.position.z);
+			ImGui::InputFloat3("ray origin", &camera.position.x);
+			glm::vec2 ndc = {io.MousePos.x, io.MousePos.y};
+			ndc /= win_size;
+			ImGui::InputFloat2("ndc", &ndc.x);
+			glm::vec2 screen = {
+				(2.0f * ndc.x - 1.0f) * aspect_ratio * fov_scale,
+				(1.0f - 2.0f * ndc.y) * fov_scale};
+			ImGui::InputFloat2("screen", &screen.x);
+			glm::vec3 ray = {screen, -1.0f};
+			ImGui::InputFloat3("ray dir", &ray.x);
+			ray = glm::normalize(transform_vec3(camera_to_world, ray, false));
+			ImGui::InputFloat3("normalized", &ray.x);
+			guizmo_state.ray_direction = *(minalg::float3 *)&ray;
+
+
+			ImGui::End();
+		}
+		auto orientation = glm::toQuat(camera_to_world);
+		guizmo_state.cam = tinygizmo::camera_parameters {
+			.yfov = fov, .near_clip = 0.1f, .far_clip = 1000.0f,
+			.position = *(minalg::float3 *)&camera.position, // quick hacky conversion
+			.orientation = *(minalg::float4 *)&orientation
+		};
+
+		glm::mat4 cam_mat = perspective_mat * view_mat;
+
+		auto trans = [&cam_mat, &win_size, &view_mat, &camera, &fov_scale](const tinygizmo::geometry_vertex &vd, glm::vec2 &p) -> bool {
+			glm::vec4 v = {vd.position.x, vd.position.y, vd.position.z, 1.0f};
+			glm::vec4 x = cam_mat * v;
+			p = glm::vec2(x) / x.w;
+			p = glm::vec2(p.x*0.5f + 0.5f, 0.5f - 0.5f*p.y);
+			// std::string s = glm::to_string(v) + ", " + glm::to_string(p);
+			// ImGui::Text("%s", s.c_str());
+			p *= win_size;
+			return x.z < 0.0f;
+		};
+
+		guizmo_ctx.render = [&renderer, &trans](const tinygizmo::geometry_mesh &r) {
+			std::vector<SDL_Vertex> vertices; // keep memory allocation
+			// triangles.clear();
+			vertices.reserve(r.vertices.size());
+			for (int i = 0; i < r.vertices.size(); i += 3) {
+				SDL_Vertex a[3];
+				int clipped = 0;
+				for (int j = 0; j < 3; j++) {
+					auto &v = r.vertices[i+j];
+					glm::vec2 p;
+					if (trans(v, p)) clipped++;
+					auto c = minalg::vec<uint8_t, 4>(v.color*255.0f);
+					a[j] = SDL_Vertex{
+						.position = SDL_FPoint{p.x, p.y},
+						.color = { c.x, c.y, c.z, c.w }//(SDL_Color)v.m_color
+					};
+				}
+				if (clipped == 3) continue;
+
+				for (int j = 0; j < 3; j++) {
+					SDL_SetRenderDrawColor(renderer, a[j].color.r, a[j].color.g, a[j].color.b, a[j].color.a);
+					SDL_RenderDrawPointsF(renderer, &a[j].position, 1);
+					vertices.push_back(a[j]);
+				}
+			}
+			SDL_RenderGeometry(renderer, NULL, vertices.data(), vertices.size(), (int *)r.triangles.data(), r.triangles.size()*3);
+		};
+
+		guizmo_ctx.update(guizmo_state);
+
 		if (ImGui::Begin("Parameters")) {
 			if (ImGui::BeginTabBar("params_tab_bar", ImGuiTabBarFlags_Reorderable)) {
-				rerender |=
-					interface::shape_parameters(camera.view_matrix(), perspective_mat, shapes, triangles, materials);
+				rerender |= interface::shape_parameters(
+					view_mat, perspective_mat, shapes, triangles, materials
+				);
 				rerender |= interface::camera_parameters(
-					camera, movement_speed, look_around_speed, pixels, glm::ivec2(WINDOW_WIDTH, WINDOW_HEIGHT)
+					camera, movement_speed, look_around_speed, pixels,
+					glm::ivec2(WINDOW_WIDTH, WINDOW_HEIGHT)
 				);
 				rerender |= interface::scene_parameters(tracer.scene_data);
 				rerender |= interface::render_parameters(tracer.options, render_raytracing);
@@ -232,23 +339,6 @@ int main(int argc, char **) {
 		}
 
 		interface::frame_time_window(frame_times, num_frame_samples, limit_fps, fps_limit, log_fps);
-
-		// Move camera
-		{
-			float horizontal = pressed_keys[SDLK_d] - pressed_keys[SDLK_a];
-			float transversal = pressed_keys[SDLK_s] - pressed_keys[SDLK_w];
-			float vertical = pressed_keys[SDLK_SPACE] - pressed_keys[SDLK_c];
-
-			const glm::vec3 movement = glm::normalize(
-				glm::vec3(camera_to_world * glm::vec4(horizontal, 0, transversal, 0)) + glm::vec3(0, vertical, 0)
-			); // 0 at the end nullify's translation
-
-			if (!glm::all(glm::isnan(movement)) && !glm::isNull(movement, glm::epsilon<float>())) {
-				camera.position += movement * delta_time * movement_speed;
-				time_not_moved = 1;
-			}
-		}
-		camera_to_world = camera.camera_matrix();
 
 		// Handle ray tracing
 		if (time_not_moved == 1) {
@@ -266,16 +356,17 @@ int main(int argc, char **) {
 
 			tracer.render(time_not_moved, pixels);
 
-			int width, height;
-			SDL_GetWindowSizeInPixels(window, &width, &height);
+			int width = win_size.x;
+			int height = win_size.y;
+
 			int target_height = (int)(width * (1.0f / aspect_ratio));
 			int target_y = (height - target_height) / 2;
 
 			// Clear top and bottom
-			SDL_Rect r = { 0, 0, width, target_y };
+			SDL_Rect r = {0, 0, width, target_y};
 			SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
 			SDL_RenderFillRect(renderer, &r);
-			r = { 0, target_y+target_height, width, height-target_y-target_height };
+			r = {0, target_y + target_height, width, height - target_y - target_height};
 			SDL_RenderFillRect(renderer, &r);
 
 			// Render to screen
@@ -283,12 +374,30 @@ int main(int argc, char **) {
 
 			SDL_Rect dstrect = {.x = 0, .y = target_y, .w = width, .h = target_height};
 			SDL_RenderCopy(renderer, texture, NULL, &dstrect);
+		} else {
+			int width = win_size.x;
+			int height = win_size.y;
+
+			SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+			SDL_Rect r = {0, 0, width, height};
+			SDL_RenderFillRect(renderer, &r);
 		}
+
+		// Im3d::PushMatrix(glm::rotate(r));
+		// Im3d::GizmoTranslation("a", &p.x);
+		// Im3d::GizmoRotation("b", (float *)&r);
+		// Im3d::PopMatrix();
+		static tinygizmo::rigid_transform t;
+		tinygizmo::transform_gizmo("test", guizmo_ctx, t);
 
 		if (pressed_keys[SDLK_p]) {
 			save_ppm("out.ppm", pixels, WINDOW_WIDTH, WINDOW_HEIGHT);
 			pressed_keys[SDLK_p] = false;
 		}
+
+		// ImGui::Begin("AAA");
+
+		guizmo_ctx.draw();
 
 		// Render imgui output
 		ImGui::Render();
@@ -305,7 +414,8 @@ int main(int argc, char **) {
 		time_not_moved++;
 
 		if (tick == 60) {
-			if (log_fps) std::cout << "Average time: " << average * 1000.0 / 60.0 << " ms\n";
+			if (log_fps)
+				std::cout << "Average time: " << average * 1000.0 / 60.0 << " ms\n";
 			tick = 0;
 			average = 0.0f;
 		}

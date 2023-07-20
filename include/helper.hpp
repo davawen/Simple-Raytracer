@@ -101,3 +101,7 @@ inline glm::vec4 euler_angle_YZX_axis(float heading, float attitude, float bank)
 
 	return glm::vec4(x, y, z, angle);
 }
+
+inline float randf() { 
+	return (float)rand() / (float)RAND_MAX;
+}

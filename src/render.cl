@@ -502,7 +502,7 @@ __kernel void render(
 		float2 screenPos = (float2
 		)((2.f * ndcPos.x - 1.f) * data.aspect_ratio * data.fov_scale,
 		  (1.f - 2.f * ndcPos.y) * data.fov_scale); // Screen space coordinates (invert y axis)
-		float3 cameraPos = (float3)(screenPos.x, screenPos.y, -1);
+		float3 cameraPos = (float3)(screenPos, -1.0f);
 
 		Ray ray;
 		// 1 0 0 x
