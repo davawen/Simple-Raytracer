@@ -778,7 +778,7 @@ bool tinygizmo::transform_gizmo(const std::string & name, gizmo_context & g, rig
     else if (g.impl->mode == transform_mode::scale) scale_gizmo(name, *g.impl, t.orientation, t.position, t.scale);
 
     const interaction_state s = g.impl->gizmos[hash_fnv1a(name)];
-    if (s.hover == true || s.active == true) activated = true;
+    if (s.active) activated = true;
 
     return activated;
 }

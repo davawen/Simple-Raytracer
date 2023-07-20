@@ -2,6 +2,7 @@
 
 #include <concepts>
 #include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/string_cast.hpp>
 
 #include "imgui.h"
 #include "tiny-gizmo.hpp"
@@ -68,7 +69,7 @@ inline bool sphere_properties(
 		tinygizmo::rigid_transform t;
 		t.position = sphere.position;
 
-		bool manipulated = tinygizmo::transform_gizmo("plane", ctx, t);
+		bool manipulated = tinygizmo::transform_gizmo("sphere", ctx, t);
 		if (manipulated) {
 			sphere.position = t.position;
 			// ImGuizmo::DecomposeMatrixToComponents(mptr(m16), (float *)&sphere.position, scratch, s);
@@ -120,8 +121,9 @@ inline bool model_properties(
 	glm::quat orientation;
 	decompose(model.transform, &scale, &orientation, &position);
 	if (selected) {
-		tinygizmo::rigid_transform t{ orientation, position, scale };
-		bool manipulated = tinygizmo::transform_gizmo("plane", ctx, t);
+		tinygizmo::rigid_transform t;
+		t.orientation = orientation; t.position = position, t.scale = scale;
+		bool manipulated = tinygizmo::transform_gizmo("model", ctx, t);
 		if (manipulated) {
 			position = t.position; orientation = t.orientation; scale = t.scale;
 			moved |= manipulated;

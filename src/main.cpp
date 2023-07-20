@@ -245,32 +245,22 @@ int main(int argc, char **) {
 		guizmo_state.hotkey_translate = ImGui::IsKeyDown(ImGuiKey_T);
 		guizmo_state.hotkey_scale = ImGui::IsKeyDown(ImGuiKey_S);
 		guizmo_state.hotkey_rotate = ImGui::IsKeyDown(ImGuiKey_R);
-		guizmo_state.viewport_size = minalg::float2(win_size.x, win_size.y);
+		guizmo_state.viewport_size = win_size;
 		{
-			ImGui::Begin("aaa");
-			guizmo_state.ray_origin = minalg::float3(camera.position.x, camera.position.y, camera.position.z);
-			ImGui::InputFloat3("ray origin", &camera.position.x);
+			guizmo_state.ray_origin = camera.position;
 			glm::vec2 ndc = {io.MousePos.x, io.MousePos.y};
 			ndc /= win_size;
-			ImGui::InputFloat2("ndc", &ndc.x);
 			glm::vec2 screen = {
 				(2.0f * ndc.x - 1.0f) * aspect_ratio * fov_scale,
 				(1.0f - 2.0f * ndc.y) * fov_scale};
-			ImGui::InputFloat2("screen", &screen.x);
 			glm::vec3 ray = {screen, -1.0f};
-			ImGui::InputFloat3("ray dir", &ray.x);
 			ray = glm::normalize(transform_vec3(camera_to_world, ray, false));
-			ImGui::InputFloat3("normalized", &ray.x);
-			guizmo_state.ray_direction = *(minalg::float3 *)&ray;
-
-
-			ImGui::End();
+			guizmo_state.ray_direction = ray;
 		}
-		auto orientation = glm::toQuat(camera_to_world);
 		guizmo_state.cam = tinygizmo::camera_parameters {
 			.yfov = fov, .near_clip = 0.1f, .far_clip = 1000.0f,
-			.position = *(minalg::float3 *)&camera.position, // quick hacky conversion
-			.orientation = *(minalg::float4 *)&orientation
+			.position = camera.position, // quick hacky conversion
+			.orientation = glm::toQuat(camera_to_world) 
 		};
 
 		glm::mat4 cam_mat = perspective_mat * view_mat;

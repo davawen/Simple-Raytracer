@@ -85,8 +85,8 @@ namespace minalg
 
 		constexpr vec(const glm::vec<4, T> &v) { x = v.x; y = v.y; z = v.z; w = v.w; }
 		constexpr operator glm::vec<4, T>() { return { x, y, z, w }; }
-		constexpr vec(const glm::qua<T> &v) { x = v.x; y = v.y; z = v.z; w = v.w; }
-		constexpr operator glm::qua<T>() { return { x, y, z, w }; }
+		constexpr vec(const glm::qua<T> &v) { x = v.x; y = v.y; z = v.y; w = v.w; }
+		constexpr operator glm::qua<T>() { return { w, x, y, z }; }
     };
 
     // Small, fixed-size matrix type, consisting of exactly M rows and N columns of type T, stored in column-major order.
