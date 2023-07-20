@@ -319,7 +319,7 @@ int main(int argc, char **) {
 		if (ImGui::Begin("Parameters")) {
 			if (ImGui::BeginTabBar("params_tab_bar", ImGuiTabBarFlags_Reorderable)) {
 				rerender |= interface::shape_parameters(
-					view_mat, perspective_mat, shapes, triangles, materials
+					shapes, triangles, guizmo_ctx, materials
 				);
 				rerender |= interface::camera_parameters(
 					camera, movement_speed, look_around_speed, pixels,
@@ -382,13 +382,6 @@ int main(int argc, char **) {
 			SDL_Rect r = {0, 0, width, height};
 			SDL_RenderFillRect(renderer, &r);
 		}
-
-		// Im3d::PushMatrix(glm::rotate(r));
-		// Im3d::GizmoTranslation("a", &p.x);
-		// Im3d::GizmoRotation("b", (float *)&r);
-		// Im3d::PopMatrix();
-		static tinygizmo::rigid_transform t;
-		tinygizmo::transform_gizmo("test", guizmo_ctx, t);
 
 		if (pressed_keys[SDLK_p]) {
 			save_ppm("out.ppm", pixels, WINDOW_WIDTH, WINDOW_HEIGHT);

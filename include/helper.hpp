@@ -6,6 +6,7 @@
 
 #include <glm/gtx/euler_angles.hpp>
 #include <glm/gtx/transform.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
 #include <glm/vec3.hpp>
 #include <glm/mat4x4.hpp>
 
@@ -67,6 +68,16 @@ inline auto mptr(glm::mat4 &m) -> decltype(glm::value_ptr(m)) {
  */
 inline glm::vec3 transform_vec3(const glm::mat4 &m, const glm::vec3 &v, bool translate) {
 	return glm::vec3(m * glm::vec4(v, translate));
+}
+
+inline void decompose(const glm::mat4 &m, glm::vec3 *scale, glm::quat *orientation, glm::vec3 *position) {
+	glm::vec3 p, s, skew;
+	glm::quat o;
+	glm::vec4 perspective;
+	glm::decompose(m, s, o, p, skew, perspective);
+	if (scale != nullptr) *scale = s;
+	if (orientation != nullptr) *orientation = o;
+	if (position != nullptr) *position = p;
 }
 
 /// Converts euler angles to the axis angle representation

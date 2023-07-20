@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <cstring>
+#include <glm/fwd.hpp>
 #ifndef tinygizmo_hpp
 #define tinygizmo_hpp
 
@@ -14,6 +16,8 @@
 #include <memory>       // For std::unique_ptr
 #include <vector>       // For ... 
 #include <ostream>      // For overloads of operator<< to std::ostream& in the operator<< overloads provided by this library
+
+#include <glm/matrix.hpp>
 
 // Visual Studio versions prior to 2015 lack constexpr support
 #if defined(_MSC_VER) && _MSC_VER < 1900 && !defined(constexpr)
@@ -27,6 +31,7 @@ namespace minalg
 {
     // Small, fixed-length vector type, consisting of exactly M elements of type T, and presumed to be a column-vector unless otherwise noted
     template<class T, int M> struct vec;
+
     template<class T> struct vec<T, 2>
     {
         T                           x, y;
@@ -38,6 +43,9 @@ namespace minalg
         constexpr explicit          vec(const vec<U, 2> & v) : vec(static_cast<T>(v.x), static_cast<T>(v.y)) {}
         constexpr const T &         operator[] (int i) const { return (&x)[i]; }
         T &                         operator[] (int i) { return (&x)[i]; }
+
+		constexpr vec(const glm::vec<2, T> &v) { x = v.x; y = v.y; }
+		constexpr operator glm::vec<2, T>() { return { x, y }; }
     };
     template<class T> struct vec<T, 3>
     {
@@ -53,6 +61,9 @@ namespace minalg
         T &                         operator[] (int i) { return (&x)[i]; }
         constexpr const vec<T, 2> &  xy() const { return *reinterpret_cast<const vec<T, 2> *>(this); }
         vec<T, 2> &                  xy() { return *reinterpret_cast<vec<T, 2> *>(this); }
+
+		constexpr vec(const glm::vec<3, T> &v) { x = v.x; y = v.y; z = v.z; }
+		constexpr operator glm::vec<3, T>() { return { x, y, z }; }
     };
     template<class T> struct vec<T, 4>
     {
@@ -71,10 +82,16 @@ namespace minalg
         constexpr const vec<T, 3> &  xyz() const { return *reinterpret_cast<const vec<T, 3> *>(this); }
         vec<T, 2> &                  xy() { return *reinterpret_cast<vec<T, 2> *>(this); }
         vec<T, 3> &                  xyz() { return *reinterpret_cast<vec<T, 3> *>(this); }
+
+		constexpr vec(const glm::vec<4, T> &v) { x = v.x; y = v.y; z = v.z; w = v.w; }
+		constexpr operator glm::vec<4, T>() { return { x, y, z, w }; }
+		constexpr vec(const glm::qua<T> &v) { x = v.x; y = v.y; z = v.z; w = v.w; }
+		constexpr operator glm::qua<T>() { return { x, y, z, w }; }
     };
 
     // Small, fixed-size matrix type, consisting of exactly M rows and N columns of type T, stored in column-major order.
     template<class T, int M, int N> struct mat;
+
     template<class T, int M> struct mat<T, M, 2>
     {
         typedef vec<T, M>           V;
@@ -88,6 +105,10 @@ namespace minalg
         constexpr vec<T, 2>         row(int i) const { return{ x[i], y[i] }; }
         constexpr const V &         operator[] (int j) const { return (&x)[j]; }
         V &                         operator[] (int j) { return (&x)[j]; }
+
+		using glm_mat = glm::mat<M, 2, T>;
+		constexpr mat(const glm_mat &m) { memcpy(this, &m, sizeof(*this)); }
+		constexpr operator glm_mat() { glm_mat m; memcpy(&m, this, sizeof(*this)); }
     };
     template<class T, int M> struct mat<T, M, 3>
     {
@@ -102,6 +123,10 @@ namespace minalg
         constexpr vec<T, 3>         row(int i) const { return{ x[i], y[i], z[i] }; }
         constexpr const V &         operator[] (int j) const { return (&x)[j]; }
         V &                         operator[] (int j) { return (&x)[j]; }
+
+		using glm_mat = glm::mat<M, 3, T>;
+		constexpr mat(const glm_mat &m) { memcpy(this, &m, sizeof(*this)); }
+		constexpr operator glm_mat() { glm_mat m; memcpy(&m, this, sizeof(*this)); }
     };
     template<class T, int M> struct mat<T, M, 4>
     {
@@ -116,6 +141,10 @@ namespace minalg
         constexpr vec<T, 4>         row(int i) const { return{ x[i], y[i], z[i], w[i] }; }
         constexpr const V &         operator[] (int j) const { return (&x)[j]; }
         V &                         operator[] (int j) { return (&x)[j]; }
+
+		using glm_mat = glm::mat<M, 4, T>;
+		constexpr mat(const glm_mat &m) { memcpy(this, &m, sizeof(*this)); }
+		constexpr operator glm_mat() { glm_mat m; memcpy(&m, this, sizeof(*this)); }
     };
 
     // Type traits for a binary operation involving linear algebra types, used for SFINAE on templated functions and operator overloads

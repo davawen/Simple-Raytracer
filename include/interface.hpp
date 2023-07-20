@@ -4,6 +4,7 @@
 #include <glm/gtx/matrix_decompose.hpp>
 
 #include "imgui.h"
+#include "tiny-gizmo.hpp"
 
 #include "helper.hpp"
 #include "parser.hpp"
@@ -11,6 +12,8 @@
 #include "tracer.hpp"
 
 namespace interface {
+
+using tinygizmo::gizmo_context;
 
 static glm::vec3 quaternion_to_eulerZYX(const glm::quat &q) {
 	glm::vec3 a;
@@ -53,7 +56,7 @@ static bool end_button(const char *text, float end_offset = 0.0f, float *out_siz
 }
 
 inline bool sphere_properties(
-	Sphere &sphere, glm::mat4 view, glm::mat4 perspective, /* ImGuizmo::OPERATION op ,*/ bool opened, bool selected
+	Sphere &sphere, gizmo_context &ctx, bool opened, bool selected
 ) {
 	bool rerender = false;
 	if (opened) {
@@ -62,20 +65,19 @@ inline bool sphere_properties(
 	}
 
 	if (selected) {
-		glm::mat4 m16 = glm::translate(sphere.position);
-		auto scale = glm::vec3(sphere.radius);
-		m16 *= glm::scale(scale);
-		float scratch[3], s[3];
+		tinygizmo::rigid_transform t;
+		t.position = sphere.position;
 
-		bool manipulated = false;//ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::LOCAL, mptr(m16));
+		bool manipulated = tinygizmo::transform_gizmo("plane", ctx, t);
 		if (manipulated) {
+			sphere.position = t.position;
 			// ImGuizmo::DecomposeMatrixToComponents(mptr(m16), (float *)&sphere.position, scratch, s);
 
-			float diff = 0.0f;
+			// float diff = 0.0f;
 			// diff += s[0] - sphere.radius;
 			// diff += s[1] - sphere.radius;
 			// diff += s[2] - sphere.radius;
-			sphere.radius = s[0];
+			// sphere.radius = s[0];
 
 			rerender |= manipulated;
 		}
@@ -84,7 +86,7 @@ inline bool sphere_properties(
 }
 
 inline bool plane_properties(
-	Plane &plane, glm::mat4 view, glm::mat4 perspective, /* ImGuizmo::OPERATION op,  */bool opened, bool selected
+	Plane &plane, gizmo_context &ctx, bool opened, bool selected
 ) {
 	bool rerender = false;
 	if (opened) {
@@ -93,16 +95,14 @@ inline bool plane_properties(
 	}
 
 	if (selected) {
-		glm::mat4 m16 = glm::rotate(0.0f, plane.normal);
-		bool manipulated = false;//ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::WORLD, mptr(m16));
+		tinygizmo::rigid_transform t;
+		t.position = plane.position;
+		t.orientation = glm::qua(0.0f, plane.normal);
+		bool manipulated = tinygizmo::transform_gizmo("plane", ctx, t);
 
 		if (manipulated) {
-			glm::quat orientation;
-			glm::vec3 s;  // Don't care
-			glm::vec4 s2; // Don't care
-
-			glm::decompose(m16, s, orientation, plane.position, s, s2);
-			plane.normal = glm::axis(orientation);
+			plane.position = t.position;
+			plane.normal = glm::axis(glm::quat(t.orientation));
 
 			rerender |= manipulated;
 		}
@@ -112,26 +112,32 @@ inline bool plane_properties(
 }
 
 inline bool model_properties(
-	Model &model, std::vector<Triangle> &triangles, glm::mat4 view, glm::mat4 perspective, /* ImGuizmo::OPERATION op,  */bool opened, bool selected
+	Model &model, std::vector<Triangle> &triangles, gizmo_context &ctx, bool opened, bool selected
 ) {
 	bool moved = false;
-	// ImGuizmo::SetID(rand());
+
+	glm::vec3 position, scale;
+	glm::quat orientation;
+	decompose(model.transform, &scale, &orientation, &position);
 	if (selected) {
-		moved |= false;//ImGuizmo::Manipulate(mptr(view), mptr(perspective), op, ImGuizmo::MODE::LOCAL, mptr(model.transform));
+		tinygizmo::rigid_transform t{ orientation, position, scale };
+		bool manipulated = tinygizmo::transform_gizmo("plane", ctx, t);
+		if (manipulated) {
+			position = t.position; orientation = t.orientation; scale = t.scale;
+			moved |= manipulated;
+		}
 	}
 
 	if (opened) {
 		ImGui::Text("%d triangles", model.num_triangles);
 
-		// float t[3], r[3], s[3];
-		// ImGuizmo::DecomposeMatrixToComponents(mptr(model.transform), t, r, s);
-		// moved |= ImGui::DragFloat3("Position", t, 0.1f);
-		// moved |= ImGui::SliderFloat3("Rotation", r, -180.0f, 180.0f, "%.1f deg");
-		// moved |= ImGui::DragFloat3("Size", s, 0.1f);
+		moved |= ImGui::DragFloat3("Position", &position.x, 0.1f);
+		// moved |= ImGui::SliderFloat4("Rotation", &orientation.x, -180.0f, 180.0f, "%.1f deg");
+		moved |= ImGui::DragFloat3("Size", &scale.x, 0.1f);
 	}
 
 	if (moved) {
-		// ImGuizmo::RecomposeMatrixFromComponents(t, r, s, mptr(model.transform));
+		model.transform = glm::translate(position) * glm::toMat4(orientation) * glm::scale(scale);
 		model.compute_bounding_box(triangles);
 		return true;
 	}
@@ -139,7 +145,8 @@ inline bool model_properties(
 }
 
 inline bool shape_parameters(
-	glm::mat4 view_matrix, glm::mat4 perspective_matrix, std::vector<Shape> &shapes, std::vector<Triangle> &triangles,
+	std::vector<Shape> &shapes, std::vector<Triangle> &triangles,
+	gizmo_context &ctx,
 	MaterialHelper &materials
 ) {
 	static int guizmo_selected = -1;
@@ -211,11 +218,11 @@ inline bool shape_parameters(
 			}
 
 			if (shape.type == ShapeType::SHAPE_SPHERE)
-				rerender |= sphere_properties(shape.shape.sphere, view_matrix, perspective_matrix, /* guizmo_operation, */ opened, selected);
+				rerender |= sphere_properties(shape.shape.sphere, ctx, opened, selected);
 			else if (shape.type == ShapeType::SHAPE_PLANE)
-				rerender |= plane_properties(shape.shape.plane, view_matrix, perspective_matrix, /* guizmo_operation, */ opened, selected);
+				rerender |= plane_properties(shape.shape.plane, ctx, opened, selected);
 			else if (shape.type == ShapeType::SHAPE_MODEL)
-				rerender |= model_properties(shape.shape.model, triangles, view_matrix, perspective_matrix, /* guizmo_operation, */ opened, selected);
+				rerender |= model_properties(shape.shape.model, triangles, ctx, opened, selected);
 
 			if (opened) {
 				rerender |= ImGui::Combo(
