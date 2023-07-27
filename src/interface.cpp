@@ -104,15 +104,16 @@ bool interface::model_properties(
 }
 
 bool interface::shape_parameters(
-	std::vector<Shape> &shapes, std::vector<Triangle> &triangles, gizmo_context &ctx,
+	std::vector<Shape> &shapes, std::vector<Triangle> &triangles, GuizmoHelper &guizmos,
 	MaterialHelper &materials
 ) {
 	static int guizmo_selected = -1;
 
 	bool rerender = false;
 	if (ImGui::BeginTabItem("Shapes")) {
-		auto mode = ctx.get_mode();
 		using Mode = tinygizmo::transform_mode;
+		Mode &mode = guizmos.mode;
+
 		const char *text[] = { ICON_FA_UP_DOWN_LEFT_RIGHT, ICON_FA_ROTATE, ICON_FA_MAXIMIZE};
 		const char *tooltip[] = {"Translate (Ctrl+T)", "Rotate (Ctrl+R)", "Scale (Ctrl+S)"};
 		Mode modes[] = {Mode::translate, Mode::rotate, Mode::scale};
@@ -126,7 +127,9 @@ bool interface::shape_parameters(
 				col.x *= 0.5f; col.y *= 0.5f; col.z *= 0.5f; // darken color
 				ImGui::PushStyleColor(ImGuiCol_Button, col);
 			}
-			ImGui::Button(text[i]);
+			if (ImGui::Button(text[i])) {
+				mode = modes[i];
+			}
 			if (active) ImGui::PopStyleColor();
 
 			if (ImGui::BeginItemTooltip()) {
@@ -217,6 +220,7 @@ bool interface::shape_parameters(
 				guizmo_selected = selected ? -1 : i;
 			}
 
+			auto &ctx = guizmos.get_ctx();
 			if (shape.type == ShapeType::SHAPE_SPHERE)
 				rerender |= sphere_properties(shape.shape.sphere, ctx, opened, selected);
 			else if (shape.type == ShapeType::SHAPE_PLANE)
@@ -527,7 +531,67 @@ void interface::frame_time_window(
 	ImGui::End();
 }
 
-void interface::guizmo_render(
+void interface::GuizmoHelper::update(
+	const ImGuiIO &io, const Camera &camera, glm::mat4 camera_mat, float aspect_ratio,
+	float fov, float fov_scale,
+	SDL_Renderer *renderer, glm::mat4 clip_mat, glm::vec2 win_size
+) {
+	using Mode = tinygizmo::transform_mode;
+	auto current_mode = context.get_mode();
+
+	if (mode == current_mode && local == current_local) {
+		state.hotkey_ctrl = false;
+	}
+	if (mode != current_mode) {
+		state.hotkey_ctrl = true;
+		if (mode == Mode::translate) state.hotkey_translate = true;
+		else state.hotkey_translate = false;
+		if (mode == Mode::scale    ) state.hotkey_scale = true;
+		else state.hotkey_scale = false;
+		if (mode == Mode::rotate   ) state.hotkey_rotate = true;
+		else state.hotkey_rotate = false;
+	}
+	if (local != current_local) {
+		state.hotkey_ctrl = true;
+		state.hotkey_local = true;
+
+		current_local = local;
+	} else {
+		state.hotkey_local = false;
+	}
+
+	state.mouse_left = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+	state.viewport_size = win_size;
+	{
+		state.ray_origin = camera.position;
+		glm::vec2 ndc = {io.MousePos.x, io.MousePos.y};
+		ndc /= win_size;
+		glm::vec2 screen = {
+			(2.0f * ndc.x - 1.0f) * aspect_ratio * fov_scale, (1.0f - 2.0f * ndc.y) * fov_scale};
+		glm::vec3 ray = {screen, -1.0f};
+		ray = glm::normalize(transform_vec3(camera_mat, ray, false));
+		state.ray_direction = ray;
+	}
+
+	state.cam = tinygizmo::camera_parameters{
+		.yfov = fov,
+		.near_clip = 0.1f,
+		.far_clip = 1000.0f,
+		.position = camera.position, // quick hacky conversion
+		.orientation = glm::toQuat(camera_mat)
+	};
+
+	context.update(state);
+	context.render = [renderer, clip_mat, win_size](const tinygizmo::geometry_mesh &r) {
+		GuizmoHelper::render(renderer, clip_mat, win_size, r);
+	};
+}
+
+void interface::GuizmoHelper::draw() {
+	context.draw();
+}
+
+ void interface::GuizmoHelper::render(
 	SDL_Renderer *renderer, const glm::mat4 &clip_mat, glm::vec2 win_size,
 	const tinygizmo::geometry_mesh &r
 ) {
@@ -575,32 +639,3 @@ void interface::guizmo_render(
 	);
 }
 
-void interface::update_guizmo_state(
-	tinygizmo::gizmo_application_state &guizmo_state, const ImGuiIO &io, const Camera &camera,
-	const glm::mat4 &camera_mat, float aspect_ratio, float fov, float fov_scale, glm::vec2 win_size
-) {
-	guizmo_state.mouse_left = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-	guizmo_state.hotkey_ctrl = ImGui::IsKeyDown(ImGuiKey_ModCtrl);
-	guizmo_state.hotkey_local = ImGui::IsKeyDown(ImGuiKey_L);
-	guizmo_state.hotkey_translate = ImGui::IsKeyDown(ImGuiKey_T);
-	guizmo_state.hotkey_scale = ImGui::IsKeyDown(ImGuiKey_S);
-	guizmo_state.hotkey_rotate = ImGui::IsKeyDown(ImGuiKey_R);
-	guizmo_state.viewport_size = win_size;
-	{
-		guizmo_state.ray_origin = camera.position;
-		glm::vec2 ndc = {io.MousePos.x, io.MousePos.y};
-		ndc /= win_size;
-		glm::vec2 screen = {
-			(2.0f * ndc.x - 1.0f) * aspect_ratio * fov_scale, (1.0f - 2.0f * ndc.y) * fov_scale};
-		glm::vec3 ray = {screen, -1.0f};
-		ray = glm::normalize(transform_vec3(camera_mat, ray, false));
-		guizmo_state.ray_direction = ray;
-	}
-
-	guizmo_state.cam = tinygizmo::camera_parameters{
-		.yfov = fov,
-		.near_clip = 0.1f,
-		.far_clip = 1000.0f,
-		.position = camera.position, // quick hacky conversion
-		.orientation = glm::toQuat(camera_mat)};
-}

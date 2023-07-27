@@ -85,8 +85,7 @@ int main(int argc, char **) {
 	static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
 	io.Fonts->AddFontFromFileTTF("assets/font_awesome.ttf", 13.0f, &config, icon_ranges);
 
-	tinygizmo::gizmo_context guizmo_ctx;
-	tinygizmo::gizmo_application_state guizmo_state;
+	interface::GuizmoHelper guizmos;
 
 	SDL_Texture *texture = SDL_CreateTexture(
 		renderer, SDL_PIXELFORMAT_ARGB32, SDL_TEXTUREACCESS_STREAMING, RENDER_WIDTH, RENDER_HEIGHT
@@ -247,16 +246,12 @@ int main(int argc, char **) {
 		glm::vec2 win_size = glm::vec2(io.DisplaySize.x, io.DisplaySize.y);
 
 		// Im3d state
-		interface::update_guizmo_state(guizmo_state, io, camera, camera_mat, aspect_ratio, fov, fov_scale, win_size);
-		guizmo_ctx.update(guizmo_state);
-		guizmo_ctx.render = [&renderer, &clip_mat, &win_size](const tinygizmo::geometry_mesh &r) {
-			interface::guizmo_render(renderer, clip_mat, win_size, r);
-		};
+		guizmos.update(io, camera, camera_mat, aspect_ratio, fov, fov_scale, renderer, clip_mat, win_size);
 
 		if (ImGui::Begin("Parameters")) {
 			if (ImGui::BeginTabBar("params_tab_bar", ImGuiTabBarFlags_Reorderable)) {
 				rerender |= interface::shape_parameters(
-					shapes, triangles, guizmo_ctx, materials
+					shapes, triangles, guizmos, materials
 				);
 				rerender |= interface::camera_parameters(
 					camera, movement_speed, look_around_speed, pixels,
@@ -326,7 +321,7 @@ int main(int argc, char **) {
 		}
 
 		// Render imgui output
-		guizmo_ctx.draw();
+		guizmos.draw();
 		ImGui::Render();
 		ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
 

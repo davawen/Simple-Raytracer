@@ -17,6 +17,7 @@
 namespace interface {
 
 using tinygizmo::gizmo_context;
+struct GuizmoHelper;
 
 static glm::vec3 quaternion_to_eulerZYX(const glm::quat &q) {
 	glm::vec3 a;
@@ -69,7 +70,7 @@ bool model_properties(
 );
 
 bool shape_parameters(
-	std::vector<Shape> &shapes, std::vector<Triangle> &triangles, gizmo_context &ctx,
+	std::vector<Shape> &shapes, std::vector<Triangle> &triangles, GuizmoHelper &guizmos,
 	MaterialHelper &materials
 );
 
@@ -89,14 +90,33 @@ void frame_time_window(
 	bool &log_fps
 );
 
-void update_guizmo_state(
-	tinygizmo::gizmo_application_state &guizmo_state, const ImGuiIO &io, const Camera &camera,
-	const glm::mat4 &camera_mat, float aspect_ratio, float fov, float fov_scale, glm::vec2 win_size
-);
+struct GuizmoHelper {
+	tinygizmo::transform_mode mode;
+	bool local = true;
 
-void guizmo_render(
-	SDL_Renderer *renderer, const glm::mat4 &clip_mat, glm::vec2 win_size,
-	const tinygizmo::geometry_mesh &r
-);
+	void update(
+		const ImGuiIO &io, const Camera &camera, glm::mat4 camera_mat, float aspect_ratio,
+		float fov, float fov_scale,
+		SDL_Renderer *renderer, glm::mat4 clip_mat, glm::vec2 win_size
+	);
+
+	/// call this at the end of the frame 
+	void draw(); 
+
+	tinygizmo::gizmo_context &get_ctx() {
+		return context;
+	}
+
+  private:
+	tinygizmo::gizmo_context context;
+	tinygizmo::gizmo_application_state state;
+
+	/// disgusting state management but tinygizmo doesn't expose the information
+	bool current_local = true;
+	static void render(
+		SDL_Renderer *renderer, const glm::mat4 &clip_mat, glm::vec2 win_size,
+		const tinygizmo::geometry_mesh &r
+	);
+};
 
 } // namespace interface
