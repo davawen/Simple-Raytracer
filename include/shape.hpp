@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #define GLM_FORCE_SWIZZLE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/ext/matrix_common.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/glm.hpp>

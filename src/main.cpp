@@ -9,6 +9,7 @@
 #define CL_TARGET_OPENCL_VERSION 200
 #include <glm/glm.hpp>
 
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/ext/matrix_common.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>

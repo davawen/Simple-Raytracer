@@ -11,6 +11,7 @@
 #include <boost/compute/utility.hpp>
 
 #define GLM_FORCE_SWIZZLE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtx/rotate_vector.hpp>
 #include <stb_image.h>
