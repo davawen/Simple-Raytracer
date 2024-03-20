@@ -1,8 +1,5 @@
 #pragma once
 
-#include <exception>
-#include <stdexcept>
-
 #define GLM_FORCE_SWIZZLE
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/ext/matrix_common.hpp>
@@ -14,10 +11,6 @@
 
 #define CL_TARGET_OPENCL_VERSION 200
 #include <boost/compute/types.hpp>
-
-#include "helper.hpp"
-#include "color.hpp"
-#include "material.hpp"
 
 struct Sphere {
 	alignas(cl_float3) glm::vec3 position;
@@ -39,14 +32,7 @@ struct Triangle {
 		alignas(cl_float3) glm::vec3 pos;
 	};
 
-	union {
-		struct {
-			Vertex v0;
-			Vertex v1;
-			Vertex v2;
-		};
-		Vertex vertices[3];
-	};
+	Vertex vertices[3];
 
 	/// Initialize every field to 0
 	Triangle();

@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "tracer.hpp"
 
 static void rebuild_if_too_small(compute::buffer &buffer, size_t size) {

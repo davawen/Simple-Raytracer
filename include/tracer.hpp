@@ -1,7 +1,5 @@
 #pragma once
 
-#include <iostream>
-#include <stdexcept>
 #include <vector>
 
 #define CL_TARGET_OPENCL_VERSION 200
@@ -16,6 +14,8 @@
 #include <glm/gtx/rotate_vector.hpp>
 #include <stb_image.h>
 
+#include "color.hpp"
+#include "material.hpp"
 #include "shape.hpp"
 
 namespace compute = boost::compute;

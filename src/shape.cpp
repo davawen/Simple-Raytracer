@@ -1,4 +1,5 @@
 #include "shape.hpp"
+#include "helper.hpp"
 
 Sphere::Sphere(const glm::vec3 &position, float radius) {
 	this->position = position;
@@ -20,15 +21,15 @@ Triangle::Triangle(glm::vec3 normal, glm::vec3 v0, glm::vec3 v1, glm::vec3 v2) {
 	for (int i = 0; i < 3; i++) {
 		vertices[i].normal = normal;
 	}
-	this->v0.pos = v0;
-	this->v1.pos = v1;
-	this->v2.pos = v2;
+	this->vertices[0].pos = v0;
+	this->vertices[1].pos = v1;
+	this->vertices[2].pos = v2;
 }
 
 Triangle::Triangle(Vertex v0, Vertex v1, Vertex v2) {
-	this->v0 = v0;
-	this->v1 = v1;
-	this->v2 = v2;
+	this->vertices[0] = v0;
+	this->vertices[1] = v1;
+	this->vertices[2] = v2;
 }
 
 Model::Model() {
@@ -93,9 +94,6 @@ void Box::create_triangle(std::vector<Triangle> &triangles) {
 	// 4 2---3
 	// \ |   |
 	//  \0---1
-
-	const glm::vec3 minCorner = -glm::vec3(0.5f);
-	const glm::vec3 maxCorner = glm::vec3(0.5f);
 
 	const glm::vec3 vertices[8] = {{-1.0f, -1.0f, 1.0f}, {-1.0f, 1.0f, 1.0f}, {-1.0f, -1.0f, -1.0f},
 	                               {-1.0f, 1.0f, -1.0f}, {1.0f, -1.0f, 1.0f}, {1.0f, 1.0f, 1.0f},
