@@ -29,19 +29,19 @@ Note the you must be in the project's directory to run it, as it reads `src/rend
 
 ## Features
 
-[x] Basic shape intersections (plane, sphere, box)
-[x] Metallic, specular and refractive materials
-[-] Model loading (.stl and .obj files)
-  - Wavefront (.obj) meshes need to be triangulated, and don't support materials
-[x] Light accumulation (eliminate noise over time)
-[x] UI and gizmos to place objects
+- [x] Basic shape intersections (plane, sphere, box)
+- [x] Metallic, specular and refractive materials
+- [-] Model loading (.stl and .obj files)
+    - Wavefront (.obj) meshes need to be triangulated, and don't support materials
+- [x] Light accumulation (eliminate noise over time)
+- [x] UI and gizmos to place objects
 
 ## Future plans
 
-[ ] Acceleration structure (BVH)
-[ ] Texture support
-[ ] Scene saving and loading
-[ ] Denoising
+- [ ] Acceleration structure (BVH)
+- [ ] Texture support
+- [ ] Scene saving and loading
+- [ ] Denoising
 
 ## Credits
 
