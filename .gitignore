@@ -6,3 +6,6 @@ Session.vim
 .xmake/
 out.ppm
 imgui.ini
+
+subprojects/*
+!subprojects/*.wrap
