@@ -42,3 +42,9 @@ Note the you must be in the project's directory to run it, as it reads `src/rend
 [ ] Texture support
 [ ] Scene saving and loading
 [ ] Denoising
+
+## Credits
+
+- [`stb_image.h`](https://github.com/nothings/stb/blob/master/stb_image.h) by @nothings
+- [tinygizmo](https://github.com/ddiakopoulos/tinygizmo) by @ddiakopoulos
+- [Dear ImGui](https://github.com/ocornut/imgui)
