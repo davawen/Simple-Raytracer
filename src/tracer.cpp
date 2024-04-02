@@ -103,7 +103,9 @@ void Tracer::clear_canvas() {
 void Tracer::render(cl_uint ticks_stopped, std::vector<uint8_t> &output) {
 	// Raytrace to canvas
 	kernel.set_arg(0, sizeof(RenderData), &options);
-	queue.enqueue_1d_range_kernel(kernel, 0, options.width * options.height, 0);
+
+	size_t size[2] = { (size_t)options.width, (size_t)options.height };
+	queue.enqueue_nd_range_kernel(kernel, 2, NULL, size, NULL);
 
 	// Average with the last samples
 	average_kernel.set_arg(0, sizeof(cl_uint), &ticks_stopped);

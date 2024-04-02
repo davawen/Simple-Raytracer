@@ -485,10 +485,9 @@ __kernel void render(
 	__global const Triangle *triangles, __global const Material *materials,
 	image2d_t skybox, sampler_t sampler
 ) {
-	const uint id = get_global_id(0);
-
+	uint id = get_global_id(0) + get_global_id(1)*data.width;
 	Scene scene = {.data = &sceneData, .shapes = shapes, .triangles = triangles, .materials = materials};
-	float2 windowPos = (float2)(id % data.width, (uint)(id / data.width)); // Raster space coordinates
+	float2 windowPos = (float2)(get_global_id(0), get_global_id(1)); // Raster space coordinates
 
 	// output[id] += read_imagef()
 
